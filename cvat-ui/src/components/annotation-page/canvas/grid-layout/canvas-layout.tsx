@@ -5,7 +5,9 @@
 import './styles.scss';
 import 'react-grid-layout/css/styles.css';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {
+    useCallback, useEffect, useRef, useState,
+} from 'react';
 import { useSelector } from 'react-redux';
 import RGL, { WidthProvider } from 'react-grid-layout';
 import PropTypes from 'prop-types';
@@ -153,20 +155,17 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         canvasInstance: state.annotation.canvas.instance,
         canvasBackgroundColor: state.settings.player.canvasBackgroundColor,
     }), shallowEqual);
+    const contentRef = useRef<HTMLElement>(null);
 
     const computeRowHeight = (): number => {
-        const container = window.document.getElementsByClassName('cvat-annotation-header')[0];
-        let containerHeight = window.innerHeight;
-        if (container) {
-            containerHeight = window.innerHeight - container.getBoundingClientRect().bottom;
-            // https://github.com/react-grid-layout/react-grid-layout/issues/628#issuecomment-1228453084
-            return Math.floor(
-                (containerHeight - config.CANVAS_WORKSPACE_MARGIN * (config.CANVAS_WORKSPACE_ROWS)) /
-                config.CANVAS_WORKSPACE_ROWS,
-            );
-        }
-
-        return 0;
+        const header = window.document.getElementsByClassName('cvat-annotation-header')[0];
+        const containerHeight = contentRef.current?.getBoundingClientRect().height ??
+            (header ? window.innerHeight - header.getBoundingClientRect().bottom : 0);
+        // https://github.com/react-grid-layout/react-grid-layout/issues/628#issuecomment-1228453084
+        return Math.floor(
+            (containerHeight - config.CANVAS_WORKSPACE_MARGIN * (config.CANVAS_WORKSPACE_ROWS)) /
+            config.CANVAS_WORKSPACE_ROWS,
+        );
     };
 
     const getLayout = useCallback(() => (
@@ -204,6 +203,17 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     }, [fitCanvas]);
 
     useEffect(() => {
+        if (!contentRef.current) return undefined;
+
+        const observer = new ResizeObserver(() => {
+            setRowHeight(computeRowHeight());
+            fitCanvas();
+        });
+        observer.observe(contentRef.current);
+        return () => observer.disconnect();
+    }, [fitCanvas]);
+
+    useEffect(() => {
         setRowHeight(computeRowHeight());
     }, []);
 
@@ -225,7 +235,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
         `cvat-canvas-grid-root ${singleClassName}` : 'cvat-canvas-grid-root';
 
     return (
-        <Layout.Content>
+        <Layout.Content ref={contentRef}>
             { !!rowHeight && (
                 <ReactGridLayout
                     cols={config.CANVAS_WORKSPACE_COLS}

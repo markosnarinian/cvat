@@ -5,11 +5,9 @@
 @import 'base';
 
 .cvat-rectangle-track-timeline {
-    position: absolute;
+    position: relative;
     z-index: 1100;
-    left: $grid-unit-size;
-    right: $grid-unit-size;
-    bottom: $grid-unit-size;
+    margin: 0 $grid-unit-size $grid-unit-size;
     background: rgba(255, 255, 255, 96%);
     border: 1px solid $border-color-1;
     border-radius: $border-radius-base;

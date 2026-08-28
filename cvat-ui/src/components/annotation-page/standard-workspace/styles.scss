@@ -13,9 +13,15 @@
     }
 }
 
-.cvat-standard-workspace-main {
-    position: relative;
+.cvat-standard-workspace-main.ant-layout {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
     min-width: 0;
+
+    > .ant-layout-content {
+        min-height: 0;
+        overflow: hidden;
+    }
 }
 
 .cvat-objects-sidebar-sider {
