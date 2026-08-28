@@ -17,12 +17,16 @@ import IssueAggregatorComponent from 'components/annotation-page/review/issues-a
 import RemoveConfirmComponent from 'components/annotation-page/standard-workspace/remove-confirm';
 import PropagateConfirmComponent from 'components/annotation-page/standard-workspace/propagate-confirm';
 import BrushTools from 'components/annotation-page/canvas/views/canvas2d/brush-tools';
+import RectangleTrackTimeline from './rectangle-track-timeline';
 
 export default function StandardWorkspaceComponent(): JSX.Element {
     return (
         <Layout hasSider className='cvat-standard-workspace'>
             <ControlsSideBarContainer />
-            <CanvasLayout />
+            <Layout className='cvat-standard-workspace-main'>
+                <CanvasLayout />
+                <RectangleTrackTimeline />
+            </Layout>
             <BrushTools />
             <ObjectSideBarComponent objectsList={<ObjectsListContainer />} />
             <PropagateConfirmComponent />

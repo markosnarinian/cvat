@@ -1,0 +1,130 @@
+// Copyright (C) CVAT.ai Corporation
+//
+// SPDX-License-Identifier: MIT
+
+@import 'base';
+
+.cvat-rectangle-track-timeline {
+    position: absolute;
+    z-index: 1100;
+    left: $grid-unit-size;
+    right: $grid-unit-size;
+    bottom: $grid-unit-size;
+    background: rgba(255, 255, 255, 96%);
+    border: 1px solid $border-color-1;
+    border-radius: $border-radius-base;
+    box-shadow: $box-shadow-base;
+}
+
+.cvat-rectangle-track-timeline-header {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    gap: $grid-unit-size * 2;
+    padding: 0 $grid-unit-size;
+
+    > .ant-select {
+        width: 180px;
+    }
+
+    > span:last-child {
+        color: $text-color-secondary;
+        margin-left: auto;
+        margin-right: $grid-unit-size;
+    }
+}
+
+.cvat-rectangle-track-timeline-body {
+    max-height: 220px;
+    overflow-y: auto;
+    border-top: 1px solid $border-color-1;
+    padding: $grid-unit-size;
+}
+
+.cvat-rectangle-track-timeline-row {
+    display: grid;
+    grid-template-columns: 145px 1fr;
+    min-height: 30px;
+    align-items: center;
+
+    &:nth-child(even) {
+        background: rgba(0, 0, 0, 2%);
+    }
+}
+
+.cvat-rectangle-track-timeline-row-active {
+    background: $active-label-background-color !important;
+}
+
+.cvat-rectangle-track-timeline-label {
+    border: 0;
+    background: transparent;
+    display: flex;
+    justify-content: space-between;
+    min-width: 0;
+    cursor: pointer;
+    padding: 0 $grid-unit-size;
+
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    small {
+        color: $text-color-secondary;
+    }
+}
+
+.cvat-rectangle-track-timeline-track {
+    height: 24px;
+    position: relative;
+    background: $background-color-2;
+    overflow: hidden;
+
+    svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+}
+
+.cvat-rectangle-track-timeline-segment {
+    position: absolute;
+    height: 8px;
+    top: 8px;
+    border: 0;
+    border-radius: 4px;
+    background: $slider-color;
+    cursor: pointer;
+    min-width: 2px;
+}
+
+.cvat-rectangle-track-timeline-keyframes,
+.cvat-rectangle-track-timeline-keyframes-special {
+    fill: none;
+    stroke: $text-color;
+    stroke-width: 2;
+}
+
+.cvat-rectangle-track-timeline-keyframes-special {
+    stroke: $danger-icon-color;
+    stroke-dasharray: 2 2;
+}
+
+.cvat-rectangle-track-timeline-playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #faad14;
+    pointer-events: none;
+}
+
+.cvat-rectangle-track-timeline-empty {
+    color: $text-color-secondary;
+    padding: $grid-unit-size * 2;
+    text-align: center;
+}

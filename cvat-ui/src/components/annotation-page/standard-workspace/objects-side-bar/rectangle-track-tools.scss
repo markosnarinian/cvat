@@ -1,0 +1,72 @@
+// Copyright (C) CVAT.ai Corporation
+//
+// SPDX-License-Identifier: MIT
+
+@import 'base';
+
+.cvat-rectangle-track-tools {
+    padding: $grid-unit-size * 2;
+    display: flex;
+    flex-direction: column;
+    gap: $grid-unit-size * 2;
+
+    section {
+        border-top: 1px solid $border-color-1;
+        padding-top: $grid-unit-size * 2;
+        display: flex;
+        flex-direction: column;
+        gap: $grid-unit-size * 2;
+    }
+
+    .cvat-rectangle-track-tools-field {
+        display: flex;
+        flex-direction: column;
+        gap: $grid-unit-size;
+        font-size: 12px;
+    }
+
+    .ant-input-number,
+    .ant-select,
+    .ant-radio-group {
+        width: 100%;
+    }
+}
+
+.cvat-rectangle-track-tools-empty {
+    color: $text-color-secondary;
+}
+
+.cvat-rectangle-track-tools-heading,
+.cvat-rectangle-track-keyframe-toggle,
+.cvat-rectangle-track-tools-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $grid-unit-size;
+}
+
+.cvat-rectangle-track-tools-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: $grid-unit-size * 2;
+}
+
+.cvat-rectangle-track-tools-slider-row {
+    display: grid;
+    grid-template-columns: 1fr 70px;
+    gap: $grid-unit-size * 2;
+    align-items: center;
+}
+
+.cvat-rectangle-track-falloff-preview {
+    height: 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+
+    span {
+        flex: 1;
+        background: $slider-color;
+        border-radius: 2px 2px 0 0;
+    }
+}

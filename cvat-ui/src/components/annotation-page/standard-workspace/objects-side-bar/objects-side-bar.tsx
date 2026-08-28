@@ -13,13 +13,14 @@ import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import Tabs from 'antd/lib/tabs';
 import Layout from 'antd/lib/layout';
 
-import { CombinedState } from 'reducers';
+import { CombinedState, Workspace } from 'reducers';
 import { DimensionType } from 'cvat-core-wrapper';
 import LabelsList from 'components/annotation-page/standard-workspace/objects-side-bar/labels-list';
 import { collapseSidebar as collapseSidebarAction } from 'actions/annotation-actions';
 import AppearanceBlock from 'components/annotation-page/appearance-block';
 import IssuesListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/issues-list';
 import { OBJECTS_SIDEBAR_OPEN_Z_LAYER_EVENT } from 'utils/objects-sidebar';
+import RectangleTrackTools from './rectangle-track-tools';
 
 interface OwnProps {
     objectsList: JSX.Element;
@@ -28,6 +29,7 @@ interface OwnProps {
 interface StateToProps {
     sidebarCollapsed: boolean;
     jobInstance: any;
+    workspace: Workspace;
 }
 
 interface DispatchToProps {
@@ -39,12 +41,14 @@ function mapStateToProps(state: CombinedState): StateToProps {
         annotation: {
             sidebarCollapsed,
             job: { instance: jobInstance },
+            workspace,
         },
     } = state;
 
     return {
         sidebarCollapsed,
         jobInstance,
+        workspace,
     };
 }
 
@@ -58,7 +62,7 @@ function mapDispatchToProps(dispatch: Dispatch<AnyAction>): DispatchToProps {
 
 function ObjectsSideBar(props: StateToProps & DispatchToProps & OwnProps): JSX.Element {
     const {
-        sidebarCollapsed, collapseSidebar, objectsList, jobInstance,
+        sidebarCollapsed, collapseSidebar, objectsList, jobInstance, workspace,
     } = props;
     const [activeTab, setActiveTab] = useState('objects');
     useEffect((): () => void => {
@@ -123,7 +127,12 @@ function ObjectsSideBar(props: StateToProps & DispatchToProps & OwnProps): JSX.E
                     label: 'Labels',
                     forceRender: true,
                     children: <LabelsList />,
-                }, ...(is2D ? [{ key: 'issues', label: 'Issues', children: <IssuesListComponent /> }] : [])]}
+                }, ...(is2D && workspace === Workspace.STANDARD ? [{
+                    key: 'track',
+                    label: 'Track',
+                    forceRender: true,
+                    children: <RectangleTrackTools />,
+                }] : []), ...(is2D ? [{ key: 'issues', label: 'Issues', children: <IssuesListComponent /> }] : [])]}
             />
             {!sidebarCollapsed && <AppearanceBlock />}
         </Layout.Sider>

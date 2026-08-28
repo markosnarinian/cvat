@@ -14,6 +14,7 @@ import {
     getCore, MLModel, JobType, Job, QualityConflict,
     ObjectState, ObjectType, ShapeType, JobState, JobValidationLayout,
     DimensionType, Source, AudioIntervalState,
+    RectangleTrackTransformRequest,
 } from 'cvat-core-wrapper';
 import logger, { EventScope } from 'cvat-logger';
 import { getCVATStore } from 'cvat-store';
@@ -169,6 +170,8 @@ export enum AnnotationActionTypes {
     UPDATE_BRUSH_TOOLS_CONFIG = 'UPDATE_BRUSH_TOOLS_CONFIG',
     HIGHLIGHT_CONFLICT = 'HIGHLIGHT_CONFCLICT',
     HOVERED_CHAPTER = 'HOVERED_CHAPTER',
+    SET_RECTANGLE_TRACK_PROPAGATION = 'SET_RECTANGLE_TRACK_PROPAGATION',
+    SET_RECTANGLE_TRACK_PENDING_ACTIVATION = 'SET_RECTANGLE_TRACK_PENDING_ACTIVATION',
 }
 
 export enum AnnotationSource {
@@ -517,6 +520,15 @@ export function switchPropagateVisibility(visible: boolean): AnyAction {
     };
 }
 
+export function setRectangleTrackPropagation(
+    settings: Partial<CombinedState['annotation']['rectangleTrack']['propagation']>,
+): AnyAction {
+    return {
+        type: AnnotationActionTypes.SET_RECTANGLE_TRACK_PROPAGATION,
+        payload: settings,
+    };
+}
+
 export function switchSimplifyVisibility(clientID: number | null): AnyAction {
     const state = getStore().getState();
     const objectState = clientID !== null ?
@@ -846,6 +858,65 @@ export function changeFrameAsync(
                     },
                 });
             }
+        }
+    };
+}
+
+function setRectangleTrackPendingActivation(clientID: number | null): AnyAction {
+    return {
+        type: AnnotationActionTypes.SET_RECTANGLE_TRACK_PENDING_ACTIVATION,
+        payload: { clientID },
+    };
+}
+
+export function navigateToRectangleTrackAsync(frame: number, clientID: number): ThunkAction {
+    return async (dispatch: ThunkDispatch, getState: () => CombinedState): Promise<void> => {
+        const currentFrame = getState().annotation.player.frame.number;
+        if (currentFrame === frame) {
+            dispatch(activateObject(clientID, null, null));
+            return;
+        }
+
+        dispatch(setRectangleTrackPendingActivation(clientID));
+        await dispatch(changeFrameAsync(frame));
+        if (getState().annotation.player.frame.number !== frame) {
+            dispatch(setRectangleTrackPendingActivation(null));
+        }
+    };
+}
+
+export function navigateAnnotationFrameAsync(
+    direction: 'forward' | 'backward', labelID: number | null,
+): ThunkAction {
+    return async (dispatch: ThunkDispatch, getState: () => CombinedState): Promise<void> => {
+        const state = getState();
+        const {
+            job: { instance: jobInstance, frameNumbers },
+            player: { frame: { number: frame } },
+        } = state.annotation;
+        if (!jobInstance) return;
+
+        try {
+            const label = labelID === null ? null : jobInstance.labels.find((_label) => _label.id === labelID);
+            const filters = label ? [{ '==': [{ var: 'label' }, label.name] }] : [];
+            const candidates = frameNumbers.filter((candidate) => (
+                direction === 'forward' ? candidate > frame : candidate < frame
+            ));
+            if (direction === 'backward') candidates.reverse();
+            if (!candidates.length) return;
+
+            const candidate = await jobInstance.annotations.search(candidates[0], candidates[candidates.length - 1], {
+                allowDeletedFrames: false,
+                annotationsFilters: filters,
+            });
+            if (candidate !== null) {
+                await dispatch(changeFrameAsync(candidate));
+            }
+        } catch (error) {
+            dispatch({
+                type: AnnotationActionTypes.SEARCH_ANNOTATIONS_FAILED,
+                payload: { error },
+            });
         }
     };
 }
@@ -1281,6 +1352,29 @@ export function updateAnnotationsAsync(statesToUpdate: ObjectState[]): ThunkActi
             }
 
             dispatchAnnotationsUpdate(dispatch, states, await jobInstance.actions.get());
+        } catch (error) {
+            dispatch({
+                type: AnnotationActionTypes.UPDATE_ANNOTATIONS_FAILED,
+                payload: { error },
+            });
+            dispatch(fetchAnnotationsAsync());
+        }
+    };
+}
+
+export function transformRectangleTrackAsync(
+    objectState: ObjectState,
+    request: RectangleTrackTransformRequest,
+): ThunkAction {
+    return async (dispatch: ThunkDispatch): Promise<void> => {
+        const { jobInstance, workspace } = receiveAnnotationsParameters();
+        try {
+            if (workspace !== Workspace.STANDARD) {
+                throw new Error('Rectangle track transforms are only available in the standard workspace');
+            }
+
+            const result = await jobInstance.annotations.transformRectangleTrack(objectState, request);
+            dispatchAnnotationsUpdate(dispatch, [result.state], await jobInstance.actions.get());
         } catch (error) {
             dispatch({
                 type: AnnotationActionTypes.UPDATE_ANNOTATIONS_FAILED,

@@ -154,6 +154,7 @@ export enum HistoryActions {
     CHANGED_SKELETON = 'Changed skeleton',
     CHANGED_AUDIO_POSITION = 'Changed audio position',
     CHANGED_AUDIO_INTERVALS = 'Changed audio intervals',
+    TRANSFORMED_RECTANGLE_TRACK = 'Transformed rectangle track',
     MERGED_OBJECTS = 'Merged objects',
     JOINED_OBJECTS = 'Joined objects',
     SLICED_OBJECT = 'Sliced object',

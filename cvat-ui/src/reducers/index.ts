@@ -873,6 +873,13 @@ export interface EditingState {
     objectState: ObjectState | null;
 }
 
+export interface RectangleTrackPropagationSettings {
+    mode: 'off' | 'forward' | 'both';
+    radius: number;
+    exponent: number;
+    createKeyframes: boolean;
+}
+
 export interface AnnotationState {
     activities: {
         loads: {
@@ -996,6 +1003,11 @@ export interface AnnotationState {
     }
     propagate: {
         visible: boolean;
+    };
+    rectangleTrack: {
+        propagation: RectangleTrackPropagationSettings;
+        pendingActivationID: number | null;
+        metadataRevision: number;
     };
     simplify: {
         objectState: ObjectState | null;

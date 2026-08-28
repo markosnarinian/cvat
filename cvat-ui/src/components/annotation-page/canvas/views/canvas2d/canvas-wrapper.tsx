@@ -24,6 +24,7 @@ import {
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import {
     AnnotationConflict, ObjectState, ObjectType, ShapeType, QualityConflict, getCore,
+    RectangleTrackTransformRequest,
 } from 'cvat-core-wrapper';
 import { openZLayerInObjectsSidebar, scrollAndExpandState } from 'utils/objects-sidebar';
 import getHiddenZLayers from 'utils/get-hidden-z-layers';
@@ -51,6 +52,7 @@ import {
     collapseObjectItems,
     collapseSidebar,
     AnnotationSource,
+    transformRectangleTrackAsync,
 } from 'actions/annotation-actions';
 import {
     switchGrid,
@@ -129,6 +131,7 @@ interface StateToProps {
     imageFilters: ImageFilter[];
     activeControl: ActiveControl;
     activeObjectHidden: boolean;
+    rectangleTrackPropagation: CombinedState['annotation']['rectangleTrack']['propagation'];
 }
 
 interface DispatchToProps {
@@ -158,6 +161,7 @@ interface DispatchToProps {
     onCanvasErrorOccurred(error: Error): void;
     onStartIssue(position: number[]): void;
     onUpdateEditedObject(editedState: ObjectState | null): void;
+    onTransformRectangleTrack(state: ObjectState, request: RectangleTrackTransformRequest): void;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -183,6 +187,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
             },
             sidebarCollapsed,
             workspace,
+            rectangleTrack: { propagation: rectangleTrackPropagation },
         },
         settings: {
             player: {
@@ -277,6 +282,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         highlightedConflict,
         imageFilters,
         activeObjectHidden,
+        rectangleTrackPropagation,
     };
 }
 
@@ -322,6 +328,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         onUpdateAnnotations(states: ObjectState[]): void {
             dispatch(updateAnnotationsAsync(states));
+        },
+        onTransformRectangleTrack(state: ObjectState, request: RectangleTrackTransformRequest): void {
+            dispatch(transformRectangleTrackAsync(state, request));
         },
         onCreateAnnotations(
             states: ObjectState[],
@@ -910,11 +919,34 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private onCanvasEditDone = (event: any): void => {
         const {
-            activeControl, onUpdateAnnotations, updateActiveControl, onUpdateEditedObject,
+            activeControl, onUpdateAnnotations, onTransformRectangleTrack,
+            rectangleTrackPropagation, updateActiveControl, onUpdateEditedObject, workspace,
         } = this.props;
         const { state, points, rotation } = event.detail;
         if (state.rotation !== rotation) {
             state.rotation = rotation;
+        } else if (
+            rectangleTrackPropagation.mode !== 'off' &&
+            workspace === Workspace.STANDARD &&
+            state.objectType === ObjectType.TRACK &&
+            state.shapeType === ShapeType.RECTANGLE &&
+            !state.lock &&
+            !state.isGroundTruth &&
+            Array.isArray(state.points) && state.points.length === 4 &&
+            Array.isArray(points) && points.length === 4
+        ) {
+            onTransformRectangleTrack(state, {
+                kind: 'canvas-edit',
+                frame: state.frame,
+                before: state.points as [number, number, number, number],
+                after: points as [number, number, number, number],
+                propagation: {
+                    direction: rectangleTrackPropagation.mode,
+                    radius: rectangleTrackPropagation.radius,
+                    exponent: rectangleTrackPropagation.exponent,
+                    createKeyframes: rectangleTrackPropagation.createKeyframes,
+                },
+            });
         } else {
             state.points = points;
         }
@@ -923,7 +955,9 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             // do not need to reset and deactivate if it was just resizing/dragging and other simple actions
             updateActiveControl(ActiveControl.CURSOR);
         }
-        onUpdateAnnotations([state]);
+        if (state.updateFlags.rotation || state.updateFlags.points) {
+            onUpdateAnnotations([state]);
+        }
         onUpdateEditedObject(null);
     };
 

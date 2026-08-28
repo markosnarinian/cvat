@@ -60,6 +60,13 @@ import { ImageProcessing, BaseImageFilter, SerializedImageFilter } from 'cvat-co
 import AboutData from 'cvat-core/src/about';
 import { MinimalShape, TrackerResults, InteractorResults } from 'cvat-core/src/lambda-manager';
 import { fetchAndAssembleAudio } from 'cvat-core/src/audio';
+import type {
+    RectanglePoints,
+    RectangleTrackMetadata,
+    RectangleTrackResize,
+    RectangleTrackTransformRequest,
+    RectangleTrackTransformResult,
+} from 'cvat-core/src/annotations-objects/types';
 
 const cvat: CVATCore = _cvat;
 
@@ -175,4 +182,9 @@ export type {
     SerializedImageFilter,
     SerializedInterval,
     WebhookEvent,
+    RectanglePoints,
+    RectangleTrackMetadata,
+    RectangleTrackResize,
+    RectangleTrackTransformRequest,
+    RectangleTrackTransformResult,
 };

@@ -181,6 +181,16 @@ const defaultState: AnnotationState = {
     propagate: {
         visible: false,
     },
+    rectangleTrack: {
+        propagation: {
+            mode: 'off',
+            radius: 5,
+            exponent: 1,
+            createKeyframes: false,
+        },
+        pendingActivationID: null,
+        metadataRevision: 0,
+    },
     simplify: {
         objectState: null,
         originalPoints: null,
@@ -320,6 +330,13 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     ...state.canvas,
                     instance: canvas,
                 },
+                rectangleTrack: {
+                    propagation: {
+                        ...defaultState.rectangleTrack.propagation,
+                    },
+                    pendingActivationID: null,
+                    metadataRevision: 0,
+                },
                 colors,
                 workspace: isReview && job.dimension === DimensionType.DIMENSION_2D ?
                     Workspace.REVIEW : workspaceSelected,
@@ -394,6 +411,8 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 changeTime,
                 changeFrameEvent,
             } = action.payload;
+            const historyChanged = history.undo.length !== state.annotations.history.undo.length ||
+                history.redo.length !== state.annotations.history.redo.length;
             const [minZ, maxZ] = computeZRange(states);
             const currentZLayer = state.annotations.initialized ? state.annotations.zLayer.cur : maxZ;
             const hiddenByFrame = new Map(state.annotations.zLayer.hiddenByFrame);
@@ -433,6 +452,10 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                         hiddenByFrame,
                     },
                 },
+                rectangleTrack: historyChanged ? {
+                    ...state.rectangleTrack,
+                    metadataRevision: state.rectangleTrack.metadataRevision + 1,
+                } : state.rectangleTrack,
             };
         }
         case AnnotationActionTypes.CHANGE_FRAME_FAILED: {
@@ -544,6 +567,9 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
             };
         }
         case AnnotationActionTypes.CONFIRM_CANVAS_READY: {
+            const { pendingActivationID } = state.rectangleTrack;
+            const canActivatePending = pendingActivationID !== null &&
+                state.annotations.states.some((_state) => _state.clientID === pendingActivationID);
             return {
                 ...state,
                 player: {
@@ -556,6 +582,14 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 canvas: {
                     ...state.canvas,
                     ready: true,
+                },
+                annotations: {
+                    ...state.annotations,
+                    activatedStateID: canActivatePending ? pendingActivationID : state.annotations.activatedStateID,
+                },
+                rectangleTrack: {
+                    ...state.rectangleTrack,
+                    pendingActivationID: null,
                 },
             };
         }
@@ -641,12 +675,36 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 },
             };
         }
+        case AnnotationActionTypes.SET_RECTANGLE_TRACK_PROPAGATION: {
+            return {
+                ...state,
+                rectangleTrack: {
+                    ...state.rectangleTrack,
+                    propagation: {
+                        ...state.rectangleTrack.propagation,
+                        ...action.payload,
+                    },
+                },
+            };
+        }
+        case AnnotationActionTypes.SET_RECTANGLE_TRACK_PENDING_ACTIVATION: {
+            return {
+                ...state,
+                rectangleTrack: {
+                    ...state.rectangleTrack,
+                    pendingActivationID: action.payload.clientID,
+                },
+            };
+        }
         case AnnotationActionTypes.UPDATE_ANNOTATIONS_SUCCESS: {
             const {
                 history, states: updatedStates,
             } = action.payload;
             const { states: prevStates } = state.annotations;
             const nextStates = [...prevStates];
+            const updatesRectangleTrack = updatedStates.some((_state: ObjectState) => (
+                _state.objectType === ObjectType.TRACK && _state.shapeType === ShapeType.RECTANGLE
+            ));
 
             const clientIDs = prevStates.map((prevState: ObjectState): number => prevState.clientID!);
             for (const updatedState of updatedStates) {
@@ -670,6 +728,10 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     renderData: getAnnotationsRenderData(nextStates, state.annotations.filters),
                     history,
                 },
+                rectangleTrack: updatesRectangleTrack ? {
+                    ...state.rectangleTrack,
+                    metadataRevision: state.rectangleTrack.metadataRevision + 1,
+                } : state.rectangleTrack,
             };
         }
         case AnnotationActionTypes.RESET_ANNOTATIONS_GROUP: {
@@ -749,6 +811,8 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
         }
         case AnnotationActionTypes.REMOVE_OBJECT_SUCCESS: {
             const { objectState, history } = action.payload;
+            const removesRectangleTrack = objectState.objectType === ObjectType.TRACK &&
+                objectState.shapeType === ShapeType.RECTANGLE;
             const contextMenuClientID = state.canvas.contextMenu.clientID;
             const contextMenuVisible = state.canvas.contextMenu.visible;
             const nextStates = state.annotations.states.filter(
@@ -776,6 +840,10 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     objectState: null,
                     force: false,
                 },
+                rectangleTrack: removesRectangleTrack ? {
+                    ...state.rectangleTrack,
+                    metadataRevision: state.rectangleTrack.metadataRevision + 1,
+                } : state.rectangleTrack,
             };
         }
         case AnnotationActionTypes.REMOVE_OBJECT_FAILED: {
@@ -1008,6 +1076,10 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                         max: maxZ,
                         cur: currentZLayer,
                     },
+                },
+                rectangleTrack: {
+                    ...state.rectangleTrack,
+                    metadataRevision: state.rectangleTrack.metadataRevision + 1,
                 },
             };
         }

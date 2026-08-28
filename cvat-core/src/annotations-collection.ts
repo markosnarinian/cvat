@@ -8,9 +8,12 @@ import {
     shapeFactory, trackFactory, Track, Shape, Tag,
     MaskShape, BasicInjection, SkeletonShape,
     SkeletonTrack, PolygonShape, CuboidShape,
-    RectangleShape, PolylineShape, PointsShape, EllipseShape,
+    RectangleShape, RectangleTrack, PolylineShape, PointsShape, EllipseShape,
     InterpolationNotPossibleError, AudioInterval,
 } from './annotations-objects';
+import type {
+    RectangleTrackMetadata, RectangleTrackTransformRequest, RectangleTrackTransformResult,
+} from './annotations-objects/types';
 import {
     SerializedCollection, SerializedShape, SerializedTrack,
 } from './server-response-types';
@@ -404,6 +407,36 @@ export default class Collection {
         });
 
         return objectStates;
+    }
+
+    public transformRectangleTrack(
+        objectState: ObjectState,
+        request: RectangleTrackTransformRequest,
+    ): RectangleTrackTransformResult {
+        checkObjectType('object state', objectState, null, { cls: ObjectState, name: 'ObjectState' });
+        const object = typeof objectState.clientID === 'number' ? this.objects[objectState.clientID] : null;
+        if (!(object instanceof RectangleTrack) || object.removed) {
+            throw new ArgumentError('Only an existing rectangle track can be transformed');
+        }
+        if (object.lock) {
+            throw new ArgumentError('A locked rectangle track cannot be transformed');
+        }
+        if (this.injection.jobType === JobType.GROUND_TRUTH) {
+            throw new ArgumentError('Ground truth rectangle tracks cannot be transformed');
+        }
+
+        return object.transform(request);
+    }
+
+    public rectangleTrackMetadata(clientID?: number): RectangleTrackMetadata[] {
+        if (typeof clientID !== 'undefined' && !Number.isInteger(clientID)) {
+            throw new ArgumentError('Rectangle track client ID must be an integer');
+        }
+
+        return this.tracks
+            .filter((track): track is RectangleTrack => track instanceof RectangleTrack && !track.removed)
+            .filter((track) => typeof clientID === 'undefined' || track.clientID === clientID)
+            .map((track) => track.metadata());
     }
 
     private _mergeInternal(objectsForMerge: (Track | Shape)[], shapeType: ShapeType, label: Label): SerializedTrack {
@@ -1631,6 +1664,24 @@ export default class Collection {
         }
     }
 
+    private searchFrameNumbers(
+        frameFrom: number,
+        frameTo: number,
+        allowDeletedFrames: boolean,
+    ): number[] {
+        const forward = frameTo >= frameFrom;
+        const frames = Object.keys(this.injection.framesInfo)
+            .map(Number)
+            .filter((frame) => Number.isInteger(frame))
+            .sort((left, right) => left - right)
+            .filter((frame) => (forward ?
+                frame >= frameFrom && frame <= frameTo :
+                frame <= frameFrom && frame >= frameTo))
+            .filter((frame) => allowDeletedFrames || !this.injection.framesInfo.isFrameDeleted(frame));
+
+        return forward ? frames : frames.reverse();
+    }
+
     private _searchEmpty(
         frameFrom: number,
         frameTo: number,
@@ -1639,14 +1690,8 @@ export default class Collection {
         },
     ): number | null {
         const { allowDeletedFrames } = searchParameters;
-        const sign = Math.sign(frameTo - frameFrom);
-        const predicate = sign > 0 ? (frame) => frame <= frameTo : (frame) => frame >= frameTo;
-        const update = sign > 0 ? (frame) => frame + 1 : (frame) => frame - 1;
-        for (let frame = frameFrom; predicate(frame); frame = update(frame)) {
-            if (!allowDeletedFrames && this.injection.framesInfo.isFrameDeleted(frame)) {
-                continue;
-            }
-
+        const frameNumbers = this.searchFrameNumbers(frameFrom, frameTo, allowDeletedFrames);
+        for (const frame of frameNumbers) {
             if (frame in this.shapes && this.shapes[frame].some((shape) => !shape.removed)) {
                 continue;
             }
@@ -1701,24 +1746,11 @@ export default class Collection {
             annotationsFilters = [];
         }
 
-        const sign = Math.sign(frameTo - frameFrom);
-        const predicate = sign > 0 ? (frame) => frame <= frameTo : (frame) => frame >= frameTo;
-        const update = sign > 0 ? (frame) => frame + 1 : (frame) => frame - 1;
+        const frameNumbers = this.searchFrameNumbers(frameFrom, frameTo, allowDeletedFrames);
 
         // if not looking for an empty frame nor frame with annotations, return the next frame
-        // check if deleted frames are allowed additionally
         if (!annotationsFilters) {
-            let frame = frameFrom;
-            while (predicate(frame)) {
-                if (!allowDeletedFrames && this.injection.framesInfo.isFrameDeleted(frame)) {
-                    frame = update(frame);
-                    continue;
-                }
-
-                return frame;
-            }
-
-            return null;
+            return frameNumbers[0] ?? null;
         }
 
         const filtersStr = JSON.stringify(annotationsFilters);
@@ -1726,12 +1758,10 @@ export default class Collection {
             filtersStr.match(/"var":"height"/) ||
             filtersStr.match(/"var":"rotation"/) ||
             filtersStr.match(/"var":"zOrder"/);
+        const firstFrame = frameNumbers[0];
+        const lastFrame = frameNumbers[frameNumbers.length - 1];
 
-        for (let frame = frameFrom; predicate(frame); frame = update(frame)) {
-            if (!allowDeletedFrames && this.injection.framesInfo.isFrameDeleted(frame)) {
-                continue;
-            }
-
+        for (const frame of frameNumbers) {
             // First prepare all data for the frame
             // Consider all shapes, tags, and not outside tracks that have keyframe here
             // In particular consider first and last frame as keyframes for all tracks
@@ -1745,8 +1775,8 @@ export default class Collection {
             );
             const tracks = Object.values(this.tracks)
                 .filter((track) => (
-                    frame in track.shapes || frame === frameFrom ||
-                    frame === frameTo || linearSearch))
+                    frame in track.shapes || frame === firstFrame ||
+                    frame === lastFrame || linearSearch))
                 .filter((track) => !track.removed);
             statesData.push(...tracks.map((track) => track.get(frame)).filter((state) => !state.outside));
 

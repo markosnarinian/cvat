@@ -372,6 +372,25 @@ export function implementJob(Job: typeof JobClass): typeof JobClass {
         },
     });
 
+    Object.defineProperty(Job.prototype.annotations.transformRectangleTrack, 'implementation', {
+        value: async function transformRectangleTrackImplementation(
+            this: JobClass,
+            objectState: Parameters<typeof JobClass.prototype.annotations.transformRectangleTrack>[0],
+            request: Parameters<typeof JobClass.prototype.annotations.transformRectangleTrack>[1],
+        ): ReturnType<typeof JobClass.prototype.annotations.transformRectangleTrack> {
+            return getCollection(this).transformRectangleTrack(objectState, request);
+        },
+    });
+
+    Object.defineProperty(Job.prototype.annotations.rectangleTrackMetadata, 'implementation', {
+        value: async function rectangleTrackMetadataImplementation(
+            this: JobClass,
+            clientID: Parameters<typeof JobClass.prototype.annotations.rectangleTrackMetadata>[0],
+        ): ReturnType<typeof JobClass.prototype.annotations.rectangleTrackMetadata> {
+            return getCollection(this).rectangleTrackMetadata(clientID);
+        },
+    });
+
     Object.defineProperty(Job.prototype.annotations.search, 'implementation', {
         value: function searchAnnotationsImplementation(
             this: JobClass,
@@ -1180,6 +1199,25 @@ export function implementTask(Task: typeof TaskClass): typeof TaskClass {
             filters: Parameters<typeof TaskClass.prototype.annotations.intervals>[0],
         ): ReturnType<typeof TaskClass.prototype.annotations.intervals> {
             return getAllIntervals(this, filters);
+        },
+    });
+
+    Object.defineProperty(Task.prototype.annotations.transformRectangleTrack, 'implementation', {
+        value: async function transformRectangleTrackImplementation(
+            this: TaskClass,
+            objectState: Parameters<typeof TaskClass.prototype.annotations.transformRectangleTrack>[0],
+            request: Parameters<typeof TaskClass.prototype.annotations.transformRectangleTrack>[1],
+        ): ReturnType<typeof TaskClass.prototype.annotations.transformRectangleTrack> {
+            return getCollection(this).transformRectangleTrack(objectState, request);
+        },
+    });
+
+    Object.defineProperty(Task.prototype.annotations.rectangleTrackMetadata, 'implementation', {
+        value: async function rectangleTrackMetadataImplementation(
+            this: TaskClass,
+            clientID: Parameters<typeof TaskClass.prototype.annotations.rectangleTrackMetadata>[0],
+        ): ReturnType<typeof TaskClass.prototype.annotations.rectangleTrackMetadata> {
+            return getCollection(this).rectangleTrackMetadata(clientID);
         },
     });
 

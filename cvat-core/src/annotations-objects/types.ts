@@ -58,6 +58,54 @@ export interface InterpolatedPosition {
     zOrder: number;
 }
 
+export type RectanglePoints = readonly [number, number, number, number];
+
+export type RectangleTrackResize =
+    { unit: 'pixels'; width: number; height: number } |
+    { unit: 'percent'; width: number; height: number };
+
+export type RectangleTrackTransformRequest =
+    {
+        kind: 'all-keyframes';
+        frame: number;
+        translation: { dx: number; dy: number };
+        resize: RectangleTrackResize;
+    } |
+    {
+        kind: 'canvas-edit';
+        frame: number;
+        before: RectanglePoints;
+        after: RectanglePoints;
+        propagation: {
+            direction: 'forward' | 'both';
+            radius: number;
+            exponent: number;
+            createKeyframes: boolean;
+        };
+    };
+
+export interface RectangleTrackTransformResult {
+    state: import('../object-state').default;
+    affectedKeyframes: number;
+    createdKeyframes: number;
+}
+
+export interface RectangleTrackMetadata {
+    clientID: number;
+    serverID: number | null;
+    labelID: number;
+    labelName: string;
+    keyframes: {
+        frame: number;
+        outside: boolean;
+        deleted: boolean;
+    }[];
+    visibleSegments: {
+        start: number;
+        stop: number;
+    }[];
+}
+
 export interface Point2D {
     x: number;
     y: number;

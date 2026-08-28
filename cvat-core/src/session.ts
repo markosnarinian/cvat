@@ -29,6 +29,9 @@ import Issue from './issue';
 import ObjectState from './object-state';
 import { JobValidationLayout, TaskValidationLayout } from './validation-layout';
 import { UpdateStatusData } from './core-types';
+import type {
+    RectangleTrackMetadata, RectangleTrackTransformRequest, RectangleTrackTransformResult,
+} from './annotations-objects/types';
 
 function buildDuplicatedAPI(prototype): void {
     Object.defineProperties(prototype, {
@@ -95,6 +98,25 @@ function buildDuplicatedAPI(prototype): void {
                         this,
                         prototype.annotations.intervals,
                         filters,
+                    );
+                    return result;
+                },
+
+                async transformRectangleTrack(objectState, request) {
+                    const result = await PluginRegistry.apiWrapper.call(
+                        this,
+                        prototype.annotations.transformRectangleTrack,
+                        objectState,
+                        request,
+                    );
+                    return result;
+                },
+
+                async rectangleTrackMetadata(clientID) {
+                    const result = await PluginRegistry.apiWrapper.call(
+                        this,
+                        prototype.annotations.rectangleTrackMetadata,
+                        clientID,
                     );
                     return result;
                 },
@@ -403,6 +425,11 @@ export class Session {
     public annotations: {
         get: (frame: number, allTracks: boolean, filters: object[]) => Promise<ObjectState[]>;
         intervals: (filters?: object[]) => Promise<AudioIntervalState[]>;
+        transformRectangleTrack: (
+            objectState: ObjectState,
+            request: RectangleTrackTransformRequest,
+        ) => Promise<RectangleTrackTransformResult>;
+        rectangleTrackMetadata: (clientID?: number) => Promise<RectangleTrackMetadata[]>;
         put: (objectStates: (ObjectState | AudioIntervalState)[]) => Promise<number[]>;
         merge: (objectStates: ObjectState[]) => Promise<void>;
         split: (objectState: ObjectState, frame: number) => Promise<void>;
@@ -525,6 +552,8 @@ export class Session {
         this.annotations = {
             get: Object.getPrototypeOf(this).annotations.get.bind(this),
             intervals: Object.getPrototypeOf(this).annotations.intervals.bind(this),
+            transformRectangleTrack: Object.getPrototypeOf(this).annotations.transformRectangleTrack.bind(this),
+            rectangleTrackMetadata: Object.getPrototypeOf(this).annotations.rectangleTrackMetadata.bind(this),
             put: Object.getPrototypeOf(this).annotations.put.bind(this),
             save: Object.getPrototypeOf(this).annotations.save.bind(this),
             merge: Object.getPrototypeOf(this).annotations.merge.bind(this),
