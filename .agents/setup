@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+run_step() {
+    local label="$1"
+    shift
+    local started=$SECONDS
+    printf '\n==> %s\n' "$label"
+    "$@"
+    printf '<== %s (%ss)\n' "$label" "$((SECONDS - started))"
+}
+
+install_system_packages() {
+    local packages=(
+        build-essential
+        curl
+        git
+        libcairo2-dev
+        libgeos-dev
+        libgif-dev
+        libhdf5-dev
+        libjpeg-dev
+        libldap2-dev
+        libpango1.0-dev
+        librsvg2-dev
+        libsasl2-dev
+        libxml2-dev
+        libxmlsec1-dev
+        libxmlsec1-openssl
+        libxslt1-dev
+        p7zip-full
+        pkg-config
+        poppler-utils
+        python3-dev
+        python3-venv
+        zlib1g-dev
+    )
+    local missing=()
+    local package
+
+    for package in "${packages[@]}"; do
+        if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fq 'install ok installed'; then
+            missing+=("$package")
+        fi
+    done
+
+    if ((${#missing[@]} == 0)); then
+        echo "System packages are already installed"
+        return
+    fi
+
+    sudo apt-get update
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y "${missing[@]}"
+}
+
+install_node() {
+    local node_version="v22.23.2"
+    local node_home="$HOME/.local/node-$node_version"
+
+    if [[ ! -x "$node_home/bin/node" ]]; then
+        local archive
+        archive="$(mktemp --suffix=.tar.xz)"
+        trap 'rm -f "$archive"' RETURN
+        curl --fail --location --retry 3 \
+            "https://nodejs.org/dist/$node_version/node-$node_version-linux-x64.tar.xz" \
+            --output "$archive"
+        mkdir -p "$node_home"
+        tar -xJf "$archive" --directory "$node_home" --strip-components=1
+        rm -f "$archive"
+        trap - RETURN
+    fi
+
+    export PATH="$node_home/bin:$PATH"
+    corepack enable yarn
+    node --version
+    yarn --version
+}
+
+install_rust() {
+    if [[ ! -x "$HOME/.cargo/bin/rustup" ]]; then
+        curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+            https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.1
+    else
+        "$HOME/.cargo/bin/rustup" toolchain install 1.85.1 --profile minimal
+        "$HOME/.cargo/bin/rustup" default 1.85.1
+    fi
+
+    export PATH="$HOME/.cargo/bin:$PATH"
+    rustc --version
+    cargo --version
+}
+
+configure_login_shell() {
+    local node_home="$HOME/.local/node-v22.23.2"
+    local marker="# CVAT orb development environment"
+
+    touch "$HOME/.bash_profile"
+    if grep -Fqx "$marker" "$HOME/.bash_profile"; then
+        echo "Login shell is already configured"
+        return
+    fi
+
+    cat >> "$HOME/.bash_profile" <<EOF
+
+$marker
+export PATH="$node_home/bin:\$PATH"
+export PATH="$HOME/.cargo/bin:\$PATH"
+if [[ "\${PWD}" == "$repo_root" || "\${PWD}" == "$repo_root/"* ]]; then
+    source "$repo_root/.env/bin/activate"
+fi
+EOF
+}
+
+install_yarn_dependencies() {
+    DISABLE_HUSKY=1 yarn install --immutable
+    (
+        cd tests
+        yarn install --immutable
+    )
+}
+
+install_python_dependencies() {
+    if [[ ! -x .env/bin/python ]]; then
+        python3 -m venv .env
+    fi
+    if [[ ! -x .env-tests/bin/python ]]; then
+        python3 -m venv .env-tests
+    fi
+
+    .env/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
+    DATUMARO_HEADLESS=1 .env/bin/python -m pip install --disable-pip-version-check \
+        --no-binary lxml,xmlsec \
+        -r cvat/requirements/development.txt \
+        -r cvat/requirements/testing.txt \
+        -r dev/requirements.txt
+
+    .env-tests/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
+    .env-tests/bin/python -m pip install --disable-pip-version-check \
+        -r tests/python/requirements.txt
+}
+
+run_step "Install system packages" install_system_packages
+run_step "Install Node.js and Yarn" install_node
+run_step "Install Rust" install_rust
+run_step "Install JavaScript dependencies" install_yarn_dependencies
+run_step "Install Python dependencies" install_python_dependencies
+run_step "Configure future login shells" configure_login_shell
+
+mkdir -p logs keys
+echo "CVAT orb setup complete"

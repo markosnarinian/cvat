@@ -81,3 +81,6 @@ cvat-ui/dist
 **/!.yarn/releases
 **/!.yarn/sdks
 **/!.yarn/versions
+
+# Amp orb portal metadata
+.amp/portals/*
