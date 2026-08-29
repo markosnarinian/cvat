@@ -6,7 +6,7 @@ import './styles.scss';
 import 'react-grid-layout/css/styles.css';
 
 import React, {
-    useCallback, useEffect, useRef, useState,
+    useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from 'react';
 import { useSelector } from 'react-redux';
 import RGL, { WidthProvider } from 'react-grid-layout';
@@ -159,8 +159,15 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
 
     const computeRowHeight = (): number => {
         const header = window.document.getElementsByClassName('cvat-annotation-header')[0];
-        const containerHeight = contentRef.current?.getBoundingClientRect().height ??
+        const workspace = contentRef.current?.parentElement;
+        let containerHeight = workspace?.getBoundingClientRect().height ??
             (header ? window.innerHeight - header.getBoundingClientRect().bottom : 0);
+        const timeline = workspace?.querySelector<HTMLElement>(':scope > .cvat-rectangle-track-timeline');
+        if (timeline) {
+            const timelineStyle = window.getComputedStyle(timeline);
+            containerHeight -= timeline.getBoundingClientRect().height +
+                parseFloat(timelineStyle.marginTop) + parseFloat(timelineStyle.marginBottom);
+        }
         // https://github.com/react-grid-layout/react-grid-layout/issues/628#issuecomment-1228453084
         return Math.floor(
             (containerHeight - config.CANVAS_WORKSPACE_MARGIN * (config.CANVAS_WORKSPACE_ROWS)) /
@@ -173,8 +180,9 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     ), [type, relatedFiles]);
 
     const [layoutConfig, setLayoutConfig] = useState<ItemLayout[]>(getLayout());
-    const [rowHeight, setRowHeight] = useState<number>(Math.floor(computeRowHeight()));
+    const [rowHeight, setRowHeight] = useState<number>(0);
     const [fullscreenKey, setFullscreenKey] = useState<string>('');
+    const gridReady = rowHeight > 0;
 
     const fitCanvas = useCallback(() => {
         if (canvasInstance instanceof Canvas) {
@@ -187,31 +195,72 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
     useEffect(() => {
         const onResize = (): void => {
             setRowHeight(computeRowHeight());
-            fitCanvas();
-            const [el] = window.document.getElementsByClassName('cvat-canvas-grid-root');
-            if (el) {
-                el.addEventListener('transitionend', () => {
-                    fitCanvas();
-                }, { once: true });
-            }
         };
 
         window.addEventListener('resize', onResize);
         return () => {
             window.removeEventListener('resize', onResize);
         };
-    }, [fitCanvas]);
+    }, []);
 
     useEffect(() => {
-        if (!contentRef.current) return undefined;
+        const workspace = contentRef.current?.parentElement;
+        if (!workspace) return undefined;
 
         const observer = new ResizeObserver(() => {
             setRowHeight(computeRowHeight());
-            fitCanvas();
         });
-        observer.observe(contentRef.current);
+        observer.observe(workspace);
+        const timeline = workspace.querySelector<HTMLElement>(':scope > .cvat-rectangle-track-timeline');
+        if (timeline) {
+            observer.observe(timeline);
+        }
         return () => observer.disconnect();
-    }, [fitCanvas]);
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!gridReady || !(canvasInstance instanceof Canvas)) return undefined;
+
+        // Fit after the grid has applied the canvas's actual size, including fullscreen transitions.
+        const canvas = canvasInstance.html();
+        fitCanvas();
+        let canvasWidth = canvas.clientWidth;
+        let canvasHeight = canvas.clientHeight;
+        let fitRequest: number | null = null;
+        const requestFit = (): void => {
+            if (fitRequest !== null) {
+                window.cancelAnimationFrame(fitRequest);
+            }
+            fitRequest = window.requestAnimationFrame(() => {
+                fitRequest = window.requestAnimationFrame(() => {
+                    fitRequest = null;
+                    if (canvas.clientWidth && canvas.clientHeight) {
+                        fitCanvas();
+                    }
+                });
+            });
+        };
+        const observer = new ResizeObserver(() => {
+            const { clientWidth, clientHeight } = canvas;
+            if (clientWidth === canvasWidth && clientHeight === canvasHeight) {
+                return;
+            }
+            canvasWidth = clientWidth;
+            canvasHeight = clientHeight;
+            requestFit();
+        });
+        const onInitialSetup = (): void => fitCanvas();
+        canvas.addEventListener('canvas.setup', onInitialSetup, { once: true });
+        observer.observe(canvas);
+
+        return () => {
+            canvas.removeEventListener('canvas.setup', onInitialSetup);
+            observer.disconnect();
+            if (fitRequest !== null) {
+                window.cancelAnimationFrame(fitRequest);
+            }
+        };
+    }, [canvasInstance, fitCanvas, gridReady]);
 
     useEffect(() => {
         setRowHeight(computeRowHeight());
@@ -236,7 +285,7 @@ function CanvasLayout({ type }: { type?: DimensionType }): JSX.Element {
 
     return (
         <Layout.Content ref={contentRef}>
-            { !!rowHeight && (
+            { gridReady && (
                 <ReactGridLayout
                     cols={config.CANVAS_WORKSPACE_COLS}
                     maxRows={config.CANVAS_WORKSPACE_ROWS}
