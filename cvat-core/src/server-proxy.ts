@@ -1743,7 +1743,7 @@ async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer>
     }
 }
 
-async function getData(jid: number, chunk: number, quality: ChunkQuality): Promise<ArrayBuffer> {
+async function getData(jid: number, chunk: number, quality: ChunkQuality, preview = false): Promise<ArrayBuffer> {
     const { backendAPI } = config;
     const pageWasVisible = isPageVisible();
     const pageVisibilityVersionAtStart = pageVisibilityCounter;
@@ -1753,7 +1753,7 @@ async function getData(jid: number, chunk: number, quality: ChunkQuality): Promi
             params: {
                 ...enableOrganization(),
                 quality,
-                type: 'chunk',
+                type: preview ? 'preview_chunk' : 'chunk',
                 index: chunk,
             },
             responseType: 'arraybuffer',

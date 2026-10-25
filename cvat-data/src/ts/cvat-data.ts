@@ -228,6 +228,9 @@ export class FrameDecoder {
     frame(frameNumber: number): ImageBitmap | Blob | null {
         const chunkIndex = this.getChunkIndex(frameNumber);
         if (chunkIndex in this.decodedChunks) {
+            // A seek can return to an older chunk while newer ones remain cached.
+            // Keep the displayed chunk alive when look-ahead makes room for more.
+            this.orderedStack = [chunkIndex, ...this.orderedStack.filter((index) => index !== chunkIndex)];
             return this.decodedChunks[chunkIndex][frameNumber];
         }
 

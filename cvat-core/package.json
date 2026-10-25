@@ -6,6 +6,7 @@
   "main": "src/api.ts",
   "scripts": {
     "build": "webpack",
+    "test:frames": "node --test tests/frame-buffering.test.cjs",
     "type-check": "tsc --noEmit",
     "type-check:watch": "yarn run type-check --watch"
   },

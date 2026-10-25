@@ -941,13 +941,13 @@ class _JobDataGetter(_DataGetter):
         allow_empty_preview: bool = False,
         data_range: tuple[int | None, int | None] | None = None,
     ) -> None:
-        possible_data_type_values = ("chunk", "frame", "preview", "context_image")
+        possible_data_type_values = ("chunk", "preview_chunk", "frame", "preview", "context_image")
         possible_quality_values = ("compressed", "original")
 
         if not data_type or data_type not in possible_data_type_values:
             raise ValidationError("Data type not specified or has wrong value")
-        elif data_type == "chunk" or data_type == "frame" or data_type == "preview":
-            if data_type == "chunk":
+        elif data_type in ("chunk", "preview_chunk", "frame", "preview"):
+            if data_type in ("chunk", "preview_chunk"):
                 if data_num is None and data_index is None:
                     raise ValidationError("Number or Index is not specified")
                 if data_num is not None and data_index is not None:
@@ -957,10 +957,16 @@ class _JobDataGetter(_DataGetter):
             elif data_quality not in possible_quality_values:
                 raise ValidationError("Wrong quality value")
 
+        if data_type == "preview_chunk" and data_quality != "compressed":
+            raise ValidationError("Preview chunks require compressed quality")
+
         self.type = data_type
 
-        self.index = int(data_index) if data_index is not None else None
-        self.number = int(data_num) if data_num is not None else None
+        try:
+            self.index = int(data_index) if data_index is not None else None
+            self.number = int(data_num) if data_num is not None else None
+        except (ValueError, TypeError):
+            raise ValidationError("Number and Index must be integers")
 
         self.quality = (
             FrameQuality.COMPRESSED if data_quality == "compressed" else FrameQuality.ORIGINAL
@@ -980,7 +986,14 @@ class _JobDataGetter(_DataGetter):
                 assert False, f"Unknown media type {media_type}"
 
     def _get_data_response(self):
-        if self.type == "chunk":
+        if self.type == "preview_chunk":
+            data, mime = MediaCache().get_or_set_job_preview_chunk(
+                self._db_job,
+                self.index if self.index is not None else self.number,
+                is_task_chunk=self.index is None,
+            )
+            return self._make_ranged_chunk_response(DataWithMeta(data, mime=mime))
+        elif self.type == "chunk":
             # Reproduce the task chunk indexing
             media_provider = self._get_media_provider()
 
@@ -2561,11 +2574,14 @@ class JobViewSet(
         parameters=[
             OpenApiParameter(
                 "type",
-                description="Specifies the type of the requested data",
+                description="Specifies the type of the requested data. preview_chunk returns "
+                "a JPEG ZIP with thumbnails (maximum 512px long edge, quality 50) for "
+                "2D image ZIP data only; requires compressed quality. Uses the same "
+                "index/number and Range semantics as chunk. Unsupported data returns 400.",
                 location=OpenApiParameter.QUERY,
                 required=True,
                 type=OpenApiTypes.STR,
-                enum=["chunk", "frame", "context_image"],
+                enum=["chunk", "preview_chunk", "frame", "context_image"],
             ),
             OpenApiParameter(
                 "quality",

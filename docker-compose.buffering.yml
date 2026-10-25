@@ -1,0 +1,17 @@
+# Build both images from the fork. Apply last, using the installed Compose project.
+# No volume, database, networking, or environment changes.
+services:
+  cvat_server: &buffering_server
+    image: cvat/server:buffering-fix
+    pull_policy: never
+  cvat_worker_utils: *buffering_server
+  cvat_worker_import: *buffering_server
+  cvat_worker_export: *buffering_server
+  cvat_worker_annotation: *buffering_server
+  cvat_worker_webhooks: *buffering_server
+  cvat_worker_quality_reports: *buffering_server
+  cvat_worker_chunks: *buffering_server
+  cvat_worker_consensus: *buffering_server
+  cvat_ui:
+    image: cvat/ui:buffering-fix
+    pull_policy: never

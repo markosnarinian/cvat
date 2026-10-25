@@ -38,6 +38,8 @@ const frameDataCache: Record<string, {
     }>;
     getChunk: (chunkIndex: number, quality: ChunkQuality) => Promise<ArrayBuffer>;
     getMeta: () => Promise<FramesMetaData>;
+    previewUnavailable?: boolean;
+    playbackPrimed?: boolean;
 }> = {};
 
 // frame meta data storage by job id
@@ -346,6 +348,7 @@ export class FrameData {
     public readonly relatedFiles: number;
     public readonly deleted: boolean;
     public readonly jobID: number;
+    readonly #previewKey: string | null;
 
     constructor({
         width,
@@ -355,7 +358,9 @@ export class FrameData {
         frameNumber,
         deleted,
         related_files: relatedFiles,
+        previewKey = null,
     }) {
+        this.#previewKey = previewKey;
         Object.defineProperties(
             this,
             Object.freeze({
@@ -391,12 +396,14 @@ export class FrameData {
         );
     }
 
-    async data(onServerRequest = () => {}): Promise<{
+    async data(onServerRequest = () => {}, usePreview = false): Promise<{
         renderWidth: number;
         renderHeight: number;
         imageData: ImageBitmap | Blob;
     }> {
-        const result = await PluginRegistry.apiWrapper.call(this, FrameData.prototype.data, onServerRequest);
+        const result = await PluginRegistry.apiWrapper.call(
+            this, FrameData.prototype.data, onServerRequest, usePreview ? this.#previewKey : null,
+        );
         return result;
     }
 }
@@ -456,12 +463,15 @@ class PrefetchAnalyzer {
 }
 
 Object.defineProperty(FrameData.prototype.data, 'implementation', {
-    async value(this: FrameData, onServerRequest) {
+    async value(this: FrameData, onServerRequest, previewKey: string | null) {
+        const cacheKey = previewKey && !frameDataCache[this.jobID].previewUnavailable ?
+            previewKey : String(this.jobID);
+        const cache = frameDataCache[cacheKey];
         const {
             provider, prefetchAnalyzer, chunkSize, jobStartFrame,
             decodeForward, forwardStep, decodedBlocksCacheSize, segmentFrameNumbers,
-        } = frameDataCache[this.jobID];
-        const meta = await frameDataCache[this.jobID].getMeta();
+        } = cache;
+        const meta = await cache.getMeta();
 
         return new Promise<{
             renderWidth: number;
@@ -493,13 +503,14 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                 return nextChunkIndex;
             }
 
-            if (frame) {
+            const prefetch = (): void => {
                 if (
                     prefetchAnalyzer.shouldPrefetchNext(
                         this.number,
                         decodeForward,
                         (chunk) => provider.isChunkCached(chunk),
-                    ) && decodedBlocksCacheSize > 1 && !frameDataCache[this.jobID].activeChunkRequest
+                    ) && decodedBlocksCacheSize > 1 && !cache.activeChunkRequest &&
+                    frameDataCache[cacheKey] === cache
                 ) {
                     const nextChunkIndex = findTheNextNotDecodedChunk(
                         meta.getFrameIndex(requestedDataFrameNumber),
@@ -508,19 +519,18 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                     if (nextChunkIndex !== null &&
                         nextChunkIndex <= chunkIndex + predecodeChunksMax
                     ) {
-                        frameDataCache[this.jobID].activeChunkRequest = new Promise((resolveForward) => {
+                        cache.activeChunkRequest = new Promise((resolveForward) => {
                             const releasePromise = (): void => {
                                 resolveForward();
-                                frameDataCache[this.jobID].activeChunkRequest = null;
+                                cache.activeChunkRequest = null;
                             };
 
-                            frameDataCache[this.jobID].getChunk(
+                            cache.getChunk(
                                 nextChunkIndex, ChunkQuality.COMPRESSED,
                             ).then((chunk: ArrayBuffer) => {
-                                if (!(this.jobID in frameDataCache)) {
-                                    // check if frameDataCache still exist
-                                    // as it may be released during chunk request
-                                    resolveForward();
+                                if (frameDataCache[cacheKey] !== cache) {
+                                    // The job may have been closed or reopened during the request.
+                                    releasePromise();
                                     return;
                                 }
 
@@ -542,20 +552,46 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         });
                     }
                 }
+            };
 
-                resolve({
-                    renderWidth: this.width,
-                    renderHeight: this.height,
-                    imageData: frame,
-                });
+            if (frame) {
+                prefetch();
+                const display = (): void => {
+                    if (frameDataCache[cacheKey] !== cache) {
+                        reject(this.number);
+                        return;
+                    }
+                    resolve({
+                        renderWidth: this.width,
+                        renderHeight: this.height,
+                        imageData: frame,
+                    });
+                };
+                if (decodeForward && cache.mode === 'interpolation' && !cache.playbackPrimed &&
+                    cache.activeChunkRequest
+                ) {
+                    // A bounded startup buffer hides video transfer/decode latency without
+                    // changing its encoding or reducing the requested playback frame rate.
+                    cache.playbackPrimed = true;
+                    let timeout: ReturnType<typeof setTimeout>;
+                    Promise.race([
+                        cache.activeChunkRequest,
+                        new Promise((done) => { timeout = setTimeout(done, 1000); }),
+                    ]).finally(() => clearTimeout(timeout)).then(() => {
+                        if (frameDataCache[cacheKey] === cache && decodedBlocksCacheSize > 2) prefetch();
+                        display();
+                    });
+                } else {
+                    display();
+                }
                 prefetchAnalyzer.addRequested(this.number);
                 return;
             }
 
             onServerRequest();
-            frameDataCache[this.jobID].latestFrameDecodeRequest = requestId;
-            (frameDataCache[this.jobID].activeChunkRequest || Promise.resolve()).finally(() => {
-                if (frameDataCache[this.jobID]?.latestFrameDecodeRequest !== requestId) {
+            cache.latestFrameDecodeRequest = requestId;
+            (cache.activeChunkRequest || Promise.resolve()).finally(() => {
+                if (frameDataCache[cacheKey] !== cache || cache.latestFrameDecodeRequest !== requestId) {
                     // not relevant request anymore
                     reject(this.number);
                     return;
@@ -573,15 +609,15 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                     return;
                 }
 
-                frameDataCache[this.jobID].activeChunkRequest = new Promise<void>((
+                cache.activeChunkRequest = new Promise<void>((
                     resolveLoadAndDecode,
                 ) => {
                     let wasResolved = false;
-                    frameDataCache[this.jobID].getChunk(
+                    cache.getChunk(
                         chunkIndex, ChunkQuality.COMPRESSED,
                     ).then((chunk: ArrayBuffer) => {
                         try {
-                            if (!(this.jobID in frameDataCache)) {
+                            if (frameDataCache[cacheKey] !== cache) {
                                 // check if frameDataCache still exist
                                 // as it may be released during chunk request
                                 resolveLoadAndDecode();
@@ -603,7 +639,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                             return;
                                         }
 
-                                        if (frameDataCache[this.jobID].latestFrameDecodeRequest === requestId &&
+                                        if (cache.latestFrameDecodeRequest === requestId &&
                                             this.number === _frame
                                         ) {
                                             wasResolved = true;
@@ -616,9 +652,18 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                         }
                                     },
                                     () => {
-                                        frameDataCache[this.jobID].activeChunkRequest = null;
+                                        cache.activeChunkRequest = null;
                                         resolveLoadAndDecode();
+                                        if (frameDataCache[cacheKey] !== cache) {
+                                            reject(this.number);
+                                            return;
+                                        }
                                         const decodedFrame = provider.frame(this.number);
+                                        // Start look-ahead on cold loads too. Otherwise a one-frame
+                                        // chunk never produces a cache hit that could trigger it.
+                                        if (cache.latestFrameDecodeRequest === requestId) {
+                                            prefetch();
+                                        }
                                         if (decodeForward) {
                                             // resolve after decoding everything if playing
                                             resolve({
@@ -631,7 +676,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                         }
                                     },
                                     (error: Error | RequestOutdatedError) => {
-                                        frameDataCache[this.jobID].activeChunkRequest = null;
+                                        cache.activeChunkRequest = null;
                                         resolveLoadAndDecode();
                                         if (error instanceof RequestOutdatedError) {
                                             reject(this.number);
@@ -645,10 +690,20 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         }
                     }).catch((error) => {
                         reject(error);
+                        cache.activeChunkRequest = null;
                         resolveLoadAndDecode(error);
                     });
                 });
             });
+        }).catch((error) => {
+            if (previewKey && [400, 404, 405, 415].includes(error?.code) &&
+                frameDataCache[this.jobID]
+            ) {
+                // Older servers do not implement previews. Keep their existing chunk path.
+                frameDataCache[this.jobID].previewUnavailable = true;
+                return this.data(onServerRequest);
+            }
+            throw error;
         });
     },
     writable: false,
@@ -771,6 +826,9 @@ async function refreshJobCacheIfOutdated(jobID: number): Promise<void> {
             // currently we only re-write meta, remove all cached frames from provider and clear cached context images
             // other parameters (e.g. chunkSize) are not supposed to be changed
             cached.provider.cleanup(Number.MAX_SAFE_INTEGER);
+            const previewKey = `${jobID}:preview`;
+            frameDataCache[previewKey]?.provider.close();
+            delete frameDataCache[previewKey];
             for (const frame of Object.keys(cached.contextCache)) {
                 for (const image of Object.values(cached.contextCache[+frame].data)) {
                     // close images to immediate memory release
@@ -909,6 +967,7 @@ export async function getFrame(
     getChunk: (chunkIndex: number, quality: ChunkQuality) => Promise<ArrayBuffer>,
 ): Promise<FrameData> {
     const dataCacheExists = jobID in frameDataCache;
+    const previewEligible = chunkType === 'imageset' && dimension === DimensionType.DIMENSION_2D;
 
     if (!dataCacheExists) {
         const blockType = chunkType === 'video' ? BlockType.MP4VIDEO : BlockType.ARCHIVE;
@@ -920,9 +979,10 @@ export async function getFrame(
             meta.frames.length,
         );
 
-        // limit of decoded frames cache by 2GB
+        // Reserve 64 MiB of the existing 2 GiB budget for image playback previews.
         const decodedBlocksCacheSize = Math.min(
-            Math.floor((2048 * 1024 * 1024) / ((mean + stdDev) * 4 * chunkSize)) || 1, 10,
+            Math.floor(((2048 - (previewEligible ? 64 : 0)) * 1024 * 1024) /
+                ((mean + stdDev) * 4 * chunkSize)) || 1, 10,
         );
 
         const dataFrameNumberGetter = (frameNumber: number): number => (
@@ -988,6 +1048,73 @@ export async function getFrame(
     frameDataCache[jobID].forwardStep = step;
 
     const meta = await frameDataCache[jobID].getMeta();
+    const previewKey = `${jobID}:preview`;
+    const usePreview = previewEligible &&
+        !frameDataCache[jobID].previewUnavailable;
+
+    if (usePreview) {
+        if (!frameDataCache[previewKey]) {
+            const baseCache = frameDataCache[jobID];
+            const decodedBlocksCacheSize = Math.min(
+                Math.floor((64 * 1024 * 1024) / (512 * 512 * 4 * chunkSize)) || 1, 10,
+            );
+            const downloads = new Map<number, Promise<ArrayBuffer>>();
+            let primed = false;
+            const download = (index: number): Promise<ArrayBuffer> => {
+                if (!downloads.has(index)) {
+                    const request = serverProxy.frames.getData(jobID, index, ChunkQuality.COMPRESSED, true);
+                    downloads.set(index, request);
+                    // Speculation must never produce unhandled rejections.
+                    request.catch(() => downloads.delete(index));
+                }
+                return downloads.get(index);
+            };
+            frameDataCache[previewKey] = {
+                ...baseCache,
+                provider: new FrameDecoder(
+                    BlockType.ARCHIVE, decodedBlocksCacheSize,
+                    (number: number): number => (
+                        meta.getFrameChunkIndex(meta.getDataFrameNumber(number - jobStartFrame))
+                    ),
+                    dimension,
+                ),
+                decodedBlocksCacheSize,
+                prefetchAnalyzer: new PrefetchAnalyzer(
+                    meta, (number) => meta.getDataFrameNumber(number - jobStartFrame),
+                ),
+                activeChunkRequest: null,
+                latestFrameDecodeRequest: null,
+                getChunk: async (index) => {
+                    const result = await download(index);
+                    downloads.delete(index);
+                    if (frameDataCache[jobID] === baseCache && frameDataCache[previewKey]) {
+                        // Pipeline small transfers to hide RTT, including single-frame chunks.
+                        const lookAhead = Math.min(4, decodedBlocksCacheSize - 1);
+                        for (const pending of downloads.keys()) {
+                            if (pending <= index || pending > index + lookAhead) downloads.delete(pending);
+                        }
+                        for (let next = index + 1; next <= index + lookAhead && next < meta.chunkCount; next++) {
+                            download(next);
+                        }
+                        if (!primed && baseCache.decodeForward) {
+                            // Pay the bounded initial buffer cost before playback,
+                            // rather than repeatedly stopping on the first few frames.
+                            primed = true;
+                            let timeout: ReturnType<typeof setTimeout>;
+                            await Promise.race([
+                                Promise.allSettled(downloads.values()),
+                                new Promise((resolve) => { timeout = setTimeout(resolve, 1000); }),
+                            ]).finally(() => clearTimeout(timeout));
+                        }
+                    }
+                    return result;
+                },
+            };
+        }
+        frameDataCache[previewKey].decodeForward = isPlaying;
+        frameDataCache[previewKey].forwardStep = step;
+        frameDataCache[previewKey].provider.setRenderSize(frameMeta.width, frameMeta.height);
+    }
 
     return new FrameData({
         width: frameMeta.width,
@@ -997,6 +1124,7 @@ export async function getFrame(
         frameNumber: frame,
         deleted: frame in meta.deletedFrames,
         jobID,
+        previewKey: usePreview ? previewKey : null,
     });
 }
 
@@ -1085,6 +1213,9 @@ export async function getJobFrameNumbers(jobID: number): Promise<number[]> {
 }
 
 export function clear(jobID: number): void {
+    const previewKey = `${jobID}:preview`;
+    frameDataCache[previewKey]?.provider.close();
+    delete frameDataCache[previewKey];
     if (jobID in frameDataCache) {
         frameDataCache[jobID].provider.close();
         for (const contextImagesByFrame of Object.values(frameDataCache[jobID].contextCache)) {

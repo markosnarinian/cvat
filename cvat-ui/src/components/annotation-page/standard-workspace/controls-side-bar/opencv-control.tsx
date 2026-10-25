@@ -121,6 +121,7 @@ const mapDispatchToProps = {
 class OpenCVControlComponent extends React.PureComponent<Props & DispatchToProps, State> {
     private activeTool: IntelligentScissors | null;
     private latestPoints: [number, number][];
+    private imageRequest: Promise<void> | null = null;
 
     public constructor(props: Props & DispatchToProps) {
         super(props);
@@ -162,19 +163,39 @@ class OpenCVControlComponent extends React.PureComponent<Props & DispatchToProps
                 this.activeTool.switchBlockMode(toolsBlockerState.algorithmsLocked);
                 this.activeTool.reset();
 
-                // Getting image data
-                type CanvasType = HTMLCanvasElement | undefined;
-                const canvas: CanvasType = window.document.getElementById('cvat_canvas_background') as CanvasType;
-                if (!canvas) {
-                    throw new Error('Element #cvat_canvas_background was not found');
-                }
+                if (!this.props.filters.length) {
+                    // The displayed canvas may still contain a progressive preview.
+                    // Algorithms must wait for the unchanged annotation-quality pixels.
+                    const tool = this.activeTool;
+                    const { frameData } = this.props;
+                    const request: Promise<void> = frameData.data().then(({ imageData, renderWidth, renderHeight }) => {
+                        if (this.imageRequest !== request || this.activeTool !== tool ||
+                            this.props.frameData !== frameData || !this.props.isActivated
+                        ) return;
+                        const image = new OffscreenCanvas(renderWidth, renderHeight);
+                        const context = image.getContext('2d');
+                        context.drawImage(imageData, 0, 0, renderWidth, renderHeight);
+                        tool.setImage(context.getImageData(0, 0, renderWidth, renderHeight));
+                    });
+                    this.imageRequest = request;
+                    // An interaction awaits the same promise and reports loading errors.
+                    request.catch(() => {});
+                } else {
+                    this.imageRequest = null;
+                    // Getting image data
+                    type CanvasType = HTMLCanvasElement | undefined;
+                    const canvas: CanvasType = window.document.getElementById('cvat_canvas_background') as CanvasType;
+                    if (!canvas) {
+                        throw new Error('Element #cvat_canvas_background was not found');
+                    }
 
-                const { width, height } = canvas;
-                const context = canvas.getContext('2d');
-                if (!context) {
-                    throw new Error('Canvas context is empty');
+                    const { width, height } = canvas;
+                    const context = canvas.getContext('2d');
+                    if (!context) {
+                        throw new Error('Canvas context is empty');
+                    }
+                    this.activeTool.setImage(context.getImageData(0, 0, width, height));
                 }
-                this.activeTool.setImage(context.getImageData(0, 0, width, height));
             }
         }
 
@@ -204,6 +225,7 @@ class OpenCVControlComponent extends React.PureComponent<Props & DispatchToProps
     }
 
     public componentWillUnmount(): void {
+        this.imageRequest = null;
         const { canvasInstance } = this.props;
 
         canvasInstance.html().removeEventListener('canvas.interacted', this.interactionListener);
@@ -228,6 +250,9 @@ class OpenCVControlComponent extends React.PureComponent<Props & DispatchToProps
         const { finished, shapes } = (e as CustomEvent).detail;
         const pressedPoints = convertShapesForInteractor(shapes, 'points', 'positive').flat();
         try {
+            const request = this.imageRequest;
+            await request;
+            if (this.imageRequest !== request || !this.props.isActivated || this.props.frame !== frame) return;
             if (finished) {
                 // need to recalculate without the latest sliding point
                 const finalPoints = await this.runCVAlgorithm(pressedPoints);

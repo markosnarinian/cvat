@@ -2831,7 +2831,11 @@ paths:
           - chunk
           - context_image
           - frame
-        description: Specifies the type of the requested data
+          - preview_chunk
+        description: Specifies the type of the requested data. preview_chunk returns
+          a JPEG ZIP with thumbnails (maximum 512px long edge, quality 50) for 2D
+          image ZIP data only; requires compressed quality. Uses the same index/number
+          and Range semantics as chunk. Unsupported data returns 400.
         required: true
       tags:
       - jobs

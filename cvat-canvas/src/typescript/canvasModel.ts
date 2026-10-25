@@ -359,6 +359,9 @@ function disableInternalSVGDrawing(data: DrawData | MasksEditData, currentData: 
 }
 
 export class CanvasModelImpl extends MasterImpl implements CanvasModel {
+    private imageRequestID = 0;
+    private imageRequestPending = false;
+
     private data: {
         activeElement: ActiveElement;
         highlightedElements: HighlightedElements;
@@ -517,7 +520,9 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         );
 
         this.notify(UpdateReasons.FITTED_CANVAS);
-        this.notify(UpdateReasons.OBJECTS_UPDATED);
+        if (!this.imageRequestPending) {
+            this.notify(UpdateReasons.OBJECTS_UPDATED);
+        }
         this.notify(UpdateReasons.ISSUE_REGIONS_UPDATED);
     }
 
@@ -579,7 +584,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         ) {
             this.data.objects = objectStates;
             this.data.renderData = renderData;
-            if (this.data.image) {
+            if (this.data.image && !this.imageRequestPending) {
                 // display objects only if there is a drawn image
                 // if there is not, UpdateReasons.OBJECTS_UPDATED will be triggered after image is set
                 // it covers cases when annotations are changed while image is being received from the server
@@ -590,6 +595,9 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
             return;
         }
 
+        const keepImageWhileLoading = frameData.number === this.data.imageID && !frameData.deleted;
+        const imageRequestID = ++this.imageRequestID;
+        this.imageRequestPending = true;
         this.data.imageID = frameData.number;
         this.data.imageIsDeleted = frameData.deleted;
         if (this.data.imageIsDeleted) {
@@ -599,14 +607,17 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         const { objects: prevObjects, renderData: prevRenderData } = this.data;
         frameData
             .data((): void => {
-                this.data.image = null;
-                this.notify(UpdateReasons.IMAGE_CHANGED);
+                if (!keepImageWhileLoading && imageRequestID === this.imageRequestID) {
+                    this.data.image = null;
+                    this.notify(UpdateReasons.IMAGE_CHANGED);
+                }
             })
             .then((data: Image): void => {
-                if (frameData.number !== this.data.imageID) {
+                if (frameData.number !== this.data.imageID || imageRequestID !== this.imageRequestID) {
                     // check that request is still relevant after async image data fetching
                     return;
                 }
+                this.imageRequestPending = false;
 
                 const relativeScaling = this.data.scale / this.data.fittedScale;
                 const prevImageLeft = this.data.left;
@@ -647,6 +658,8 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
                 this.notify(UpdateReasons.OBJECTS_UPDATED);
             })
             .catch((exception: unknown): void => {
+                if (imageRequestID !== this.imageRequestID) return;
+                this.imageRequestPending = false;
                 if (typeof exception !== 'number') {
                     // don't notify when the frame is no longer needed
                     if (exception instanceof Error) {

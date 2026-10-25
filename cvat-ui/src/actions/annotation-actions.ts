@@ -1125,7 +1125,8 @@ export function getJobAsync({
             const frameNumbers = await job.frames.frameNumbers();
             if (frameData) {
                 try {
-                    await frameData.data();
+                    // Show an image preview before loading annotation-quality detail.
+                    await frameData.data(undefined, true);
                 } catch (_error) {
                     // do nothing, user will be notified when data request is done
                 }

@@ -106,6 +106,64 @@ take our free course – [CVAT Academy](https://www.cvat.ai/resources/academy).
 
 _For alternative deployments (AWS, Kubernetes, external PostgreSQL, backups, upgrades), see the [Deployment Guides](https://docs.cvat.ai/docs/administration/community/advanced/)._
 
+### Installing this fork's frame-buffering fix on an existing Docker deployment
+
+The fork starts look-ahead buffering after cold frame loads, retains recently viewed chunks, and uses
+small, cached JPEG previews for 2D image navigation and playback. Previews are generated on demand for
+**existing tasks**; no re-upload, task conversion, database migration, environment variable, or browser
+setting is required.
+Paused frames progressively refine to the existing annotation-quality images; pixel-processing tools
+always use that quality. Source files, annotation coordinates, exports, and existing compressed/original
+API responses are unchanged.
+
+The preview stream reduces image resolution and JPEG quality while playing or waiting for image detail.
+Opening a job or seeking first displays a preview; paused frames recover the existing image quality
+without blanking the preview during loading. Video and point-cloud representations are unchanged.
+Video playback can prime one decoded chunk, waiting at most one second before its first buffered frame.
+Canvas resize/annotation updates no longer mark an image ready while
+it is still loading. The UI falls back to existing chunks if the server lacks preview support.
+Playback primes a small look-ahead window (at most one extra second after the first preview arrives)
+and pipelines bounded transfers to hide network round-trip latency.
+Cold loads, preview generation, very slow links, and overloaded servers can still cause waits;
+this is not a guarantee of zero buffering on every dataset or network.
+
+**Back up the database and data volumes first.** Check the installed CVAT version before upgrading.
+This checkout reports CVAT **2.74.1**. The fork's server and UI must be based on the same CVAT release
+as the installation; matching just the image tag name is insufficient. If versions differ, follow
+the normal CVAT upgrade procedure first, or backport these changes to the installed release.
+Arbitrary cross-version compatibility is not guaranteed.
+
+On the Docker host, check out this fork in a **separate directory** from your existing installation.
+Build its server and UI images and copy the override to the existing installation directory:
+
+```bash
+# Run from this fork's checkout, not from the existing installation.
+docker build -t cvat/server:buffering-fix .
+docker build -f Dockerfile.ui -t cvat/ui:buffering-fix .
+cp docker-compose.buffering.yml /path/to/existing/cvat/
+```
+
+From the existing installation directory, keep its `.env`, `CVAT_VERSION`, Compose project name,
+host settings, and all existing Compose overrides. Append the buffering override **last**:
+
+```bash
+# Include any other -f files used by your existing deployment before the buffering override.
+docker compose -f docker-compose.yml -f docker-compose.buffering.yml \
+  up -d
+```
+
+The override replaces only CVAT application images (server, workers, and UI), not infrastructure images,
+volumes, or configuration. Reload open browser tabs after the replacement. Do not run `down -v` or change
+the Compose project name. Keep the override in future Compose commands to retain the fork's images.
+For a same-release rollback, run the same `up` command with your original Compose files, omitting
+`-f docker-compose.buffering.yml`; the original image tags have not been overwritten.
+
+For a host without build tools or source access, build on a machine with the same CPU architecture,
+transfer both images using `docker save` / `docker load`, and copy the override alongside the installation.
+The images are local; no registry publication is required.
+
+Run the deterministic buffering regressions with `yarn workspace cvat-core run test:frames`.
+
 ## Key Capabilities
 
 - **[Manual & Auto-labeling](https://docs.cvat.ai/docs/annotation/manual-annotation/):** Annotate images, videos, and

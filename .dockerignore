@@ -1,5 +1,7 @@
 /.git
+/.amp
 /.env
+/.env-tests
 /.vscode
 /.github
 /.husky

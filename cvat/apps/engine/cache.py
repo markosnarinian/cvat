@@ -524,6 +524,71 @@ class MediaCache:
             )
         )
 
+    def get_or_set_job_preview_chunk(
+        self, db_job: models.Job, chunk_number: int, *, is_task_chunk: bool = False
+    ) -> DataWithMime:
+        db_task = db_job.segment.task
+        if (
+            db_task.dimension != models.DimensionType.DIM_2D
+            or db_task.media_type != models.MediaType.IMAGE
+            or db_task.mode != models.TaskMode.ANNOTATION
+            or db_task.data.compressed_chunk_type != models.DataChoice.IMAGESET
+        ):
+            raise ValidationError("Preview chunks are only available for 2D image ZIP data")
+
+        # Separate from both source chunks and single-image previews. A new source
+        # generation or encoder must never reuse a derivative of the old bytes.
+        generation = db_job.segment.chunks_updated_date.isoformat()
+        key = (
+            f"{self._make_cache_key_prefix(db_job)}_preview_chunk_"
+            f"jpeg-512-q50-v2_{generation}_{int(is_task_chunk)}_{chunk_number}"
+        )
+        item = self._get_or_set_cache_item(
+            key,
+            Callback(
+                callable=self.prepare_job_preview_chunk,
+                args=[db_job, chunk_number],
+                kwargs={"is_task_chunk": is_task_chunk},
+            ),
+        )
+        db_job.segment.refresh_from_db(fields=["chunks_updated_date"])
+        return self._to_data_with_mime(
+            self._validate_cache_item_timestamp(item, db_job.segment.chunks_updated_date)
+        )
+
+    @staticmethod
+    def prepare_job_preview_chunk(
+        db_job: models.Job | int, chunk_number: int, *, is_task_chunk: bool = False
+    ) -> DataWithMime:
+        # Imported here because frame providers use MediaCache themselves.
+        from cvat.apps.engine.media_io.frame_provider import JobFrameProvider
+
+        if isinstance(db_job, int):
+            db_job = models.Job.objects.select_related("segment__task__data").get(pk=db_job)
+
+        source = JobFrameProvider(db_job).get_chunk(
+            chunk_number, quality=models.FrameQuality.COMPRESSED, is_task_chunk=is_task_chunk
+        )
+        output = io.BytesIO()
+        with (
+            zipfile.ZipFile(source.data) as source_zip,
+            zipfile.ZipFile(output, "w") as preview_zip,
+        ):
+            for entry in source_zip.infolist():
+                with source_zip.open(entry) as image_file, PIL.Image.open(image_file) as image:
+                    # JPEG's native reduced-resolution decode avoids materializing
+                    # every full-resolution pixel just to produce a small preview.
+                    image.draft(image.mode, (512, 512))
+                    with PIL.ImageOps.exif_transpose(image) as oriented:
+                        oriented.thumbnail((512, 512), PIL.Image.Resampling.LANCZOS)
+                        encoded = ZipCompressedChunkWriter._compress_image(oriented, quality=50)
+                        preview_zip.writestr(
+                            zipfile.ZipInfo(entry.filename, date_time=entry.date_time),
+                            encoded.getvalue(),
+                        )
+        output.seek(0)
+        return output, "application/zip"
+
     def get_or_set_segment_preview(self, db_segment: models.Segment) -> DataWithMime:
         return self._to_data_with_mime(
             self._get_or_set_cache_item(

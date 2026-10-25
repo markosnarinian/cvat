@@ -2001,6 +2001,111 @@ class TestTaskData(TestTasksBase):
                 index=0,
             )
 
+    def test_can_get_preview_chunks_without_changing_full_data(self):
+        sizes = [(1024, 512), (512, 1024), (80, 40)]
+        colors = [(220, 20, 20), (20, 220, 20), (20, 20, 220)]
+        task_id, _ = create_task(
+            self._USERNAME,
+            {"name": "preview chunk contract"},
+            {
+                "image_quality": 85,
+                "chunk_size": 3,
+                "use_cache": False,
+                "client_files": [
+                    generate_image_file(f"{i}.jpeg", size=size, color=color)
+                    for i, (size, color) in enumerate(zip(sizes, colors))
+                ],
+            },
+        )
+        with make_api_client(self._USERNAME) as api_client:
+            jobs, _ = api_client.jobs_api.list(task_id=task_id)
+            job_id = jobs.results[0].id
+            endpoint = f"jobs/{job_id}/data"
+            metadata_before = get_method(self._USERNAME, f"jobs/{job_id}/data/meta").json()
+            full_before = get_method(self._USERNAME, endpoint, type="chunk", index=0)
+            original_before = get_method(
+                self._USERNAME, endpoint, type="chunk", quality="original", index=0
+            )
+            preview = get_method(self._USERNAME, endpoint, type="preview_chunk", index=0)
+            assert preview.status_code == HTTPStatus.OK
+            assert preview.headers["Content-Type"] == "application/zip"
+            assert preview.headers["Accept-Ranges"] == "bytes"
+            assert preview.headers["X-Updated-Date"] == full_before.headers["X-Updated-Date"]
+            assert preview.headers["X-Checksum"] != full_before.headers["X-Checksum"]
+
+            with (
+                zipfile.ZipFile(io.BytesIO(preview.content)) as thumbnails,
+                zipfile.ZipFile(io.BytesIO(full_before.content)) as full,
+            ):
+                assert thumbnails.namelist() == full.namelist()
+                for name, size, color in zip(thumbnails.namelist(), sizes, colors):
+                    with Image.open(thumbnails.open(name)) as image:
+                        scale = min(1, 512 / max(size))
+                        assert image.format == "JPEG"
+                        assert image.size == tuple(round(value * scale) for value in size)
+                        pixel = image.getpixel((0, 0))
+                        assert all(abs(a - b) < 10 for a, b in zip(pixel, color))
+
+            repeated = get_method(self._USERNAME, endpoint, type="preview_chunk", index=0)
+            by_number = get_method(self._USERNAME, endpoint, type="preview_chunk", number=0)
+            assert repeated.content == preview.content
+            assert by_number.status_code == HTTPStatus.OK
+            # Legacy task chunks may have different ZIP timestamps from job chunks.
+            with (
+                zipfile.ZipFile(io.BytesIO(preview.content)) as indexed,
+                zipfile.ZipFile(io.BytesIO(by_number.content)) as numbered,
+            ):
+                assert indexed.namelist() == numbered.namelist()
+                assert all(indexed.read(name) == numbered.read(name) for name in indexed.namelist())
+            assert repeated.headers["X-Checksum"] == preview.headers["X-Checksum"]
+            self._check_chunk_ranges(
+                api_client, "jobs", job_id, preview.content, type="preview_chunk", index=0
+            )
+            for quality, before in [("compressed", full_before), ("original", original_before)]:
+                after = get_method(self._USERNAME, endpoint, type="chunk", quality=quality, index=0)
+                assert after.content == before.content
+                assert after.headers["X-Checksum"] == before.headers["X-Checksum"]
+                assert after.headers["X-Updated-Date"] == before.headers["X-Updated-Date"]
+            assert get_method(self._USERNAME, f"jobs/{job_id}/data/meta").json() == metadata_before
+
+            for params in [
+                {},
+                {"index": 0, "number": 0},
+                {"index": -1},
+                {"index": 1},
+                {"index": "bad"},
+                {"index": 0, "quality": "original"},
+                {"index": 0, "quality": "bad"},
+            ]:
+                response = get_method(self._USERNAME, endpoint, type="preview_chunk", **params)
+                assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize(
+        "dimension, media_type, mode",
+        [
+            ("3d", "point_cloud", "annotation"),
+            ("1d", "audio", "interpolation"),
+            ("2d", "image", "interpolation"),
+        ],
+    )
+    def test_preview_chunks_reject_unsupported_media(
+        self, tasks, jobs, dimension, media_type, mode
+    ):
+        task = next(
+            task
+            for task in tasks
+            if task["dimension"] == dimension
+            and task["media_type"] == media_type
+            and task["mode"] == mode
+            and task["size"]
+        )
+        job = next(job for job in jobs if job["task_id"] == task["id"])
+        response = get_method(
+            self._USERNAME, f"jobs/{job['id']}/data", type="preview_chunk", index=0
+        )
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "only available for 2D image ZIP data" in response.text
+
     def _ensure_task_has_mixed_job_chunk_counts(self, task_id: int) -> None:
         "Check the task has both jobs with both 1 and multiple chunks"
 

@@ -89,6 +89,7 @@ interface StateToProps {
     frameAngle: number;
     canvasIsReady: boolean;
     frame: number;
+    playing: boolean;
     opacity: number;
     colorBy: ColorBy;
     selectedOpacity: number;
@@ -175,6 +176,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
             player: {
                 frame: { data: frameData, number: frame },
                 frameAngles,
+                playing,
             },
             annotations: {
                 states: annotations,
@@ -231,6 +233,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         frameAngle: frameAngles[frame - jobInstance.startFrame],
         canvasIsReady,
         frame,
+        playing,
         activatedStateID,
         activatedElementID,
         activatedAttributeID,
@@ -417,6 +420,7 @@ type Props = StateToProps & DispatchToProps;
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
     private canvasTipsRef = React.createRef<CanvasTipsComponent>();
+    private unmounted = false;
 
     public componentDidMount(): void {
         const {
@@ -616,11 +620,17 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             canvasInstance.configure({ forceFrameUpdate: true });
         }
 
+        const playbackStopped = prevProps.playing && !this.props.playing;
+        if (playbackStopped) {
+            // Replace the playback preview with the existing annotation-quality image.
+            canvasInstance.configure({ forceFrameUpdate: true });
+        }
+
         if (
             prevProps.annotations !== annotations ||
             prevProps.frameData !== frameData ||
             prevProps.hiddenZLayers !== hiddenZLayers ||
-            prevProps.renderData !== renderData
+            prevProps.renderData !== renderData || playbackStopped
         ) {
             this.updateCanvas();
         } else if (prevProps.imageFilters !== imageFilters) {
@@ -645,6 +655,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     }
 
     public componentWillUnmount(): void {
+        this.unmounted = true;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
         canvasInstance.html().removeEventListener('mousedown', this.onCanvasMouseDown);
@@ -1048,10 +1059,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         }
     }
 
-    private updateCanvas(): void {
+    private updateCanvas(fullQuality = false): void {
         const {
             hiddenZLayers, annotations, frameData,
-            workspace, frame, imageFilters, renderData,
+            workspace, frame, imageFilters, renderData, playing, jobInstance,
         } = this.props;
 
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
@@ -1065,7 +1076,24 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 get: (_frameData, prop, receiver) => {
                     if (prop === 'data') {
                         return async (...args: any[]) => {
-                            const originalImage = await _frameData.data(...args);
+                            // Pixel-processing tools need the annotation-quality bitmap.
+                            const progressive = !imageFilters.length && jobInstance.dataChunkType === 'imageset';
+                            const originalImage = await _frameData.data(args[0], progressive && !fullQuality);
+                            if (progressive && !playing && !fullQuality) {
+                                const stillRelevant = (): boolean => !this.unmounted &&
+                                    this.props.frameData === _frameData && !this.props.playing &&
+                                    this.props.imageFilters === imageFilters;
+                                jobInstance.frames.get(frame).then((refinementFrame) => refinementFrame.data())
+                                    .then((refinedImage) => {
+                                        if (stillRelevant() && refinedImage.imageData !== originalImage.imageData) {
+                                        // Refresh from current props so edits made while loading are retained.
+                                            canvasInstance.configure({ forceFrameUpdate: true });
+                                            this.updateCanvas(true);
+                                        }
+                                    }).catch((error) => {
+                                        if (stillRelevant()) this.props.onGetDataFailed(error);
+                                    });
+                            }
                             const imageIsNotProcessed = imageFilters.some((imageFilter: ImageFilter) => (
                                 imageFilter.modifier.currentProcessedImage !== frame
                             ));
