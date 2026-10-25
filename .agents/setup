@@ -84,7 +84,9 @@ install_rust() {
         curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
             https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.1
     else
-        "$HOME/.cargo/bin/rustup" toolchain install 1.85.1 --profile minimal
+        if ! "$HOME/.cargo/bin/rustup" run 1.85.1 rustc --version >/dev/null 2>&1; then
+            "$HOME/.cargo/bin/rustup" toolchain install 1.85.1 --profile minimal
+        fi
         "$HOME/.cargo/bin/rustup" default 1.85.1
     fi
 
@@ -115,10 +117,10 @@ EOF
 }
 
 install_yarn_dependencies() {
-    DISABLE_HUSKY=1 yarn install --immutable
+    DISABLE_HUSKY=1 run_step "Install workspace JavaScript dependencies" yarn install --immutable
     (
         cd tests
-        yarn install --immutable
+        run_step "Install Cypress dependencies and binary" yarn install --immutable
     )
 }
 
@@ -130,15 +132,30 @@ install_python_dependencies() {
         python3 -m venv .env-tests
     fi
 
-    .env/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
-    DATUMARO_HEADLESS=1 .env/bin/python -m pip install --disable-pip-version-check \
+    run_step "Upgrade server Python packaging tools" \
+        .env/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
+
+    # xmlsec's isolated build otherwise compiles the latest lxml as well as our
+    # runtime pin. Match the pin so both builds reuse the same cached source wheel.
+    local build_constraints="$repo_root/.env/build-constraints.txt"
+    trap 'rm -f "$repo_root/.env/build-constraints.txt"' EXIT
+    sed -n '/^lxml==/p' cvat/requirements/base.txt > "$build_constraints"
+    run_step "Build shared lxml dependency" \
+        .env/bin/python -m pip install --disable-pip-version-check \
+        --no-binary lxml -r "$build_constraints"
+    DATUMARO_HEADLESS=1 run_step "Install server Python dependencies (including native builds)" \
+        .env/bin/python -m pip install --disable-pip-version-check \
+        --build-constraint "$build_constraints" \
         --no-binary lxml,xmlsec \
-        -r cvat/requirements/development.txt \
         -r cvat/requirements/testing.txt \
         -r dev/requirements.txt
+    rm -f "$build_constraints"
+    trap - EXIT
 
-    .env-tests/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
-    .env-tests/bin/python -m pip install --disable-pip-version-check \
+    run_step "Upgrade REST-test Python packaging tools" \
+        .env-tests/bin/python -m pip install --disable-pip-version-check --upgrade pip wheel setuptools
+    run_step "Install REST-test Python dependencies" \
+        .env-tests/bin/python -m pip install --disable-pip-version-check \
         -r tests/python/requirements.txt
 }
 
