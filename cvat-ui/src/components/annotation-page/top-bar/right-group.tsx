@@ -18,7 +18,6 @@ import {
 } from 'cvat-core-wrapper';
 import { Workspace } from 'reducers';
 
-import MDEditor from '@uiw/react-md-editor';
 import rehypeSanitize from 'rehype-sanitize';
 
 interface Props {
@@ -46,8 +45,9 @@ function RightGroup(props: Props): JSX.Element {
 
     const openGuide = useCallback(() => {
         const PADDING = Math.min(window.screen.availHeight, window.screen.availWidth) * 0.4;
-        jobInstance.guide().then((guide) => {
+        jobInstance.guide().then(async (guide) => {
             if (guide) {
+                const { default: MDEditor } = await import('@uiw/react-md-editor');
                 Modal.info({
                     icon: null,
                     width: window.screen.availWidth - PADDING,

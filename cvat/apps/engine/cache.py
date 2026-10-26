@@ -110,6 +110,11 @@ def enqueue_create_chunk_job(
                 rq_job.get_status(refresh=False)
                 in {RQJobStatus.FINISHED, RQJobStatus.FAILED, RQJobStatus.CANCELED}
             ):
+                if rq_job:
+                    # RQ 1.x preserves an existing job hash's result/failure TTL
+                    # when enqueueing the same ID. It can expire while queued,
+                    # leaving the client waiting for a job the worker cannot find.
+                    rq_job.delete()
                 rq_job = queue.enqueue(
                     create_callback,
                     job_id=rq_job_id,

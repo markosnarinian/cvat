@@ -1123,18 +1123,14 @@ export function getJobAsync({
             const frameData = isAudio ? null : await job.frames.get(frameNumber);
             const jobMeta = await cvat.frames.getMeta('job', job.id);
             const frameNumbers = await job.frames.frameNumbers();
-            if (frameData) {
-                try {
-                    // Show an image preview before loading annotation-quality detail.
-                    await frameData.data(undefined, true);
-                } catch (_error) {
-                    // do nothing, user will be notified when data request is done
-                }
-            }
-
-            await job.annotations.clear({ reload: true });
-
-            const issues = await job.issues();
+            // Independent job resources must not wait for image transfer or decoding.
+            const [, , issues] = await Promise.all([
+                frameData?.data(undefined, true).catch(() => {
+                    // The canvas reports image errors when it requests the frame.
+                }),
+                job.annotations.clear({ reload: true }),
+                job.issues(),
+            ]);
             const colors = [...cvat.enums.colors];
 
             let groundTruthJobFramesMeta = null;

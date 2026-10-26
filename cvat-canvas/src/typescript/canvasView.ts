@@ -2329,11 +2329,15 @@ export class CanvasViewImpl implements CanvasView, Listener {
             if (image) {
                 this.isImageLoading = false;
                 const ctx = this.background.getContext('2d');
-                this.background.setAttribute('width', `${image.renderWidth}px`);
-                this.background.setAttribute('height', `${image.renderHeight}px`);
+                // Keep preview/video pixels at their decoded resolution. CSS and
+                // canvas geometry still use the original annotation dimensions.
+                const { width: bitmapWidth, height: bitmapHeight } = image.imageData;
+                if (this.background.width !== bitmapWidth) this.background.width = bitmapWidth;
+                if (this.background.height !== bitmapHeight) this.background.height = bitmapHeight;
 
                 if (ctx) {
-                    ctx.drawImage(image.imageData, 0, 0, image.renderWidth, image.renderHeight);
+                    ctx.clearRect(0, 0, bitmapWidth, bitmapHeight);
+                    ctx.drawImage(image.imageData, 0, 0, bitmapWidth, bitmapHeight);
                 }
 
                 if (model.imageIsDeleted) {

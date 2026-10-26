@@ -519,6 +519,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         } = this.props;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
+        if (prevProps.frameData !== frameData || prevProps.imageFilters !== imageFilters ||
+            (!prevProps.playing && this.props.playing)
+        ) {
+            prevProps.frameData?.cancelRefinement();
+        }
+
         if (
             prevProps.showObjectsTextAlways !== showObjectsTextAlways ||
             prevProps.automaticBordering !== automaticBordering ||
@@ -656,6 +662,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     public componentWillUnmount(): void {
         this.unmounted = true;
+        this.props.frameData?.cancelRefinement();
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
         canvasInstance.html().removeEventListener('mousedown', this.onCanvasMouseDown);
@@ -1078,21 +1085,28 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                         return async (...args: any[]) => {
                             // Pixel-processing tools need the annotation-quality bitmap.
                             const progressive = !imageFilters.length && jobInstance.dataChunkType === 'imageset';
-                            const originalImage = await _frameData.data(args[0], progressive && !fullQuality);
+                            const originalImage = await _frameData.data(
+                                args[0], progressive && fullQuality ? 'frame' : progressive,
+                            );
                             if (progressive && !playing && !fullQuality) {
                                 const stillRelevant = (): boolean => !this.unmounted &&
                                     this.props.frameData === _frameData && !this.props.playing &&
                                     this.props.imageFilters === imageFilters;
-                                jobInstance.frames.get(frame).then((refinementFrame) => refinementFrame.data())
-                                    .then((refinedImage) => {
-                                        if (stillRelevant() && refinedImage.imageData !== originalImage.imageData) {
-                                        // Refresh from current props so edits made while loading are retained.
-                                            canvasInstance.configure({ forceFrameUpdate: true });
-                                            this.updateCanvas(true);
-                                        }
-                                    }).catch((error) => {
-                                        if (stillRelevant()) this.props.onGetDataFailed(error);
-                                    });
+                                // Brief navigation stops must not start detail downloads
+                                // that compete with playback immediately afterwards.
+                                setTimeout(() => {
+                                    if (!stillRelevant()) return;
+                                    _frameData.data(undefined, 'frame')
+                                        .then((refinedImage) => {
+                                            if (stillRelevant() && refinedImage.imageData !== originalImage.imageData) {
+                                                // Preserve annotation edits made while loading.
+                                                canvasInstance.configure({ forceFrameUpdate: true });
+                                                this.updateCanvas(true);
+                                            }
+                                        }).catch((error) => {
+                                            if (stillRelevant()) this.props.onGetDataFailed(error);
+                                        });
+                                }, 250);
                             }
                             const imageIsNotProcessed = imageFilters.some((imageFilter: ImageFilter) => (
                                 imageFilter.modifier.currentProcessedImage !== frame

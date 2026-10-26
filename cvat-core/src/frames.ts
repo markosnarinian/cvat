@@ -340,6 +340,12 @@ export class FramesMetaData {
     }
 }
 
+const individualFrames = new WeakMap<FrameData, {
+    cache: typeof frameDataCache[string];
+    controller: AbortController;
+    data: ReturnType<FrameData['data']>;
+}>();
+
 export class FrameData {
     public readonly filename: string;
     public readonly width: number;
@@ -396,15 +402,23 @@ export class FrameData {
         );
     }
 
-    async data(onServerRequest = () => {}, usePreview = false): Promise<{
+    async data(onServerRequest = () => {}, representation: boolean | 'frame' = false): Promise<{
         renderWidth: number;
         renderHeight: number;
         imageData: ImageBitmap | Blob;
     }> {
         const result = await PluginRegistry.apiWrapper.call(
-            this, FrameData.prototype.data, onServerRequest, usePreview ? this.#previewKey : null,
+            this, FrameData.prototype.data, onServerRequest,
+            representation === true ? this.#previewKey : null,
+            representation === 'frame' && this.#previewKey !== null,
         );
         return result;
+    }
+
+    cancelRefinement(): void {
+        const refinement = individualFrames.get(this);
+        refinement?.controller.abort();
+        individualFrames.delete(this);
     }
 }
 
@@ -463,10 +477,39 @@ class PrefetchAnalyzer {
 }
 
 Object.defineProperty(FrameData.prototype.data, 'implementation', {
-    async value(this: FrameData, onServerRequest, previewKey: string | null) {
+    async value(this: FrameData, onServerRequest, previewKey: string | null, individualFrame: boolean) {
         const cacheKey = previewKey && !frameDataCache[this.jobID].previewUnavailable ?
             previewKey : String(this.jobID);
         const cache = frameDataCache[cacheKey];
+        if (individualFrame && !cache.previewUnavailable) {
+            const cached = individualFrames.get(this);
+            if (cached?.cache === cache) return cached.data;
+
+            // A paused preview needs one annotation-quality image, not an entire
+            // full-resolution chunk competing with the playback look-ahead.
+            onServerRequest();
+            const controller = new AbortController();
+            const data = serverProxy.frames.getFrame(this.jobID, this.number, controller.signal)
+                .then((blob) => createImageBitmap(blob))
+                .then((imageData) => {
+                    if (frameDataCache[cacheKey] !== cache || controller.signal.aborted) {
+                        imageData.close();
+                        throw this.number;
+                    }
+                    return { renderWidth: this.width, renderHeight: this.height, imageData };
+                }).catch((error) => {
+                    if (individualFrames.get(this)?.controller === controller) individualFrames.delete(this);
+                    if (controller.signal.aborted) throw this.number;
+                    if (frameDataCache[cacheKey] === cache) {
+                        // Keep the established retry/decoder path if a frame endpoint
+                        // or image decoder cannot provide this optional representation.
+                        return this.data(onServerRequest);
+                    }
+                    throw error;
+                });
+            individualFrames.set(this, { cache, controller, data });
+            return data;
+        }
         const {
             provider, prefetchAnalyzer, chunkSize, jobStartFrame,
             decodeForward, forwardStep, decodedBlocksCacheSize, segmentFrameNumbers,
@@ -567,11 +610,11 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         imageData: frame,
                     });
                 };
-                if (decodeForward && cache.mode === 'interpolation' && !cache.playbackPrimed &&
+                if (decodeForward && (cache.mode === 'interpolation' || previewKey) && !cache.playbackPrimed &&
                     cache.activeChunkRequest
                 ) {
-                    // A bounded startup buffer hides video transfer/decode latency without
-                    // changing its encoding or reducing the requested playback frame rate.
+                    // Pay the bounded buffer cost before the first playback image,
+                    // not when a speculative download completes mid-stream.
                     cache.playbackPrimed = true;
                     let timeout: ReturnType<typeof setTimeout>;
                     Promise.race([
@@ -1055,11 +1098,16 @@ export async function getFrame(
     if (usePreview) {
         if (!frameDataCache[previewKey]) {
             const baseCache = frameDataCache[jobID];
+            // Budget the largest actual thumbnail, not a 512px square. Wide/tall
+            // images can retain more look-ahead within the same decoded-pixel budget.
+            const previewFramePixels = meta.frames.reduce((largest, { width, height }) => {
+                const scale = Math.min(1, 512 / Math.max(width, height));
+                return Math.max(largest, Math.ceil(width * scale) * Math.ceil(height * scale));
+            }, 1);
             const decodedBlocksCacheSize = Math.min(
-                Math.floor((64 * 1024 * 1024) / (512 * 512 * 4 * chunkSize)) || 1, 10,
+                Math.floor((64 * 1024 * 1024) / (previewFramePixels * 4 * chunkSize)) || 1, 10,
             );
             const downloads = new Map<number, Promise<ArrayBuffer>>();
-            let primed = false;
             const download = (index: number): Promise<ArrayBuffer> => {
                 if (!downloads.has(index)) {
                     const request = serverProxy.frames.getData(jobID, index, ChunkQuality.COMPRESSED, true);
@@ -1095,16 +1143,6 @@ export async function getFrame(
                         }
                         for (let next = index + 1; next <= index + lookAhead && next < meta.chunkCount; next++) {
                             download(next);
-                        }
-                        if (!primed && baseCache.decodeForward) {
-                            // Pay the bounded initial buffer cost before playback,
-                            // rather than repeatedly stopping on the first few frames.
-                            primed = true;
-                            let timeout: ReturnType<typeof setTimeout>;
-                            await Promise.race([
-                                Promise.allSettled(downloads.values()),
-                                new Promise((resolve) => { timeout = setTimeout(resolve, 1000); }),
-                            ]).finally(() => clearTimeout(timeout));
                         }
                     }
                     return result;

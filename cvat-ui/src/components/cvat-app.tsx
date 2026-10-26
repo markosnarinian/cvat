@@ -55,8 +55,6 @@ import WebhooksPage from 'components/webhooks-page/webhooks-page';
 import CreateWebhookPage from 'components/setup-webhook-pages/create-webhook-page';
 import UpdateWebhookPage from 'components/setup-webhook-pages/update-webhook-page';
 
-import AnnotationGuidePage from 'components/md-guide/annotation-guide-page';
-
 import InvitationsPage from 'components/invitations-page/invitations-page';
 
 import RequestsPage from 'components/requests-page/requests-page';
@@ -89,6 +87,16 @@ import BulkProgress from './bulk-progress';
 import ProfilePageComponent from './profile-page/profile-page';
 import ServerUnavailableComponent from './server-unavailable/server-unavailable';
 import GitHubStarModal from './github-star-prompt/github-star-modal';
+
+const LazyAnnotationGuidePage = React.lazy(() => import('components/md-guide/annotation-guide-page'));
+
+function AnnotationGuidePage(): JSX.Element {
+    return (
+        <React.Suspense fallback={<Spin size='large' className='cvat-spinner' />}>
+            <LazyAnnotationGuidePage />
+        </React.Suspense>
+    );
+}
 
 interface CVATAppProps {
     loadFormats: () => void;

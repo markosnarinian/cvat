@@ -115,6 +115,9 @@ setting is required.
 Paused frames progressively refine to the existing annotation-quality images; pixel-processing tools
 always use that quality. Source files, annotation coordinates, exports, and existing compressed/original
 API responses are unchanged.
+Refinement fetches only the selected image, with the existing chunk path as a fallback. Brief pauses
+under 250 ms do not start detail downloads that would compete with immediate playback or navigation.
+Starting playback or leaving the frame cancels any optional refinement still in flight.
 
 The preview stream reduces image resolution and JPEG quality while playing or waiting for image detail.
 Opening a job or seeking first displays a preview; paused frames recover the existing image quality
@@ -124,6 +127,8 @@ Canvas resize/annotation updates no longer mark an image ready while
 it is still loading. The UI falls back to existing chunks if the server lacks preview support.
 Playback primes a small look-ahead window (at most one extra second after the first preview arrives)
 and pipelines bounded transfers to hide network round-trip latency.
+Recreating an expired chunk result also clears the previous queue job's expiry, preventing a queued
+replacement from disappearing and forcing a chunk timeout/retry.
 Cold loads, preview generation, very slow links, and overloaded servers can still cause waits;
 this is not a guarantee of zero buffering on every dataset or network.
 

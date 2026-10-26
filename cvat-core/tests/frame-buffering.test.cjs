@@ -15,6 +15,7 @@ const { transformSync } = require('@babel/core');
 function createSession({
     chunkSize = 1, size = 12, getChunk = async () => new ArrayBuffer(0),
     getPreviewChunk = async () => new ArrayBuffer(1), mode = 'annotation',
+    getImageFrame = async (number) => ({ number }),
 } = {}) {
     class Bitmap {
         closed = false;
@@ -33,7 +34,8 @@ function createSession({
         terminate() {}
     }
     const modules = new Map();
-    const proxy = { frames: { getData: (_, index) => getPreviewChunk(index), getMeta: async () => ({
+    const proxy = { frames: { getData: (_, index) => getPreviewChunk(index),
+        getFrame: (_, number, signal) => getImageFrame(number, signal), getMeta: async () => ({
         chunk_size: chunkSize,
         deleted_frames: [],
         frames: [{ width: 32, height: 24, name: 'frame.png', related_files: 0 }],
@@ -54,7 +56,9 @@ function createSession({
             babelrc: false,
         }).code;
         const execute = vm.runInNewContext(`(function(require, module, exports) { ${source}\n})`, {
-            ImageBitmap: Bitmap, Worker, Promise, setTimeout, clearTimeout, URL, window: { addEventListener() {} },
+            ImageBitmap: Bitmap, Worker, Promise, AbortController, setTimeout, clearTimeout,
+            URL, window: { addEventListener() {} },
+            createImageBitmap: async ({ number }) => Object.assign(new Bitmap(), { number, preview: false }),
             __filename: filename,
         }, { filename });
         execute((name) => {
@@ -104,6 +108,30 @@ test('video playback primes the next chunk before displaying the first buffered 
         assert.ok(session.getCachedChunks(1).includes(1));
     } finally {
         session.clear(1);
+    }
+});
+
+test('preview playback buffers before its first image, not while later chunks are arriving', async () => {
+    let finishNext;
+    let finishLater;
+    const session = createSession({ chunkSize: 3, size: 9, getPreviewChunk: async (chunk) => {
+        if (chunk === 1) return new Promise((resolve) => { finishNext = resolve; });
+        if (chunk === 2) return new Promise((resolve) => { finishLater = resolve; });
+        return new ArrayBuffer(1);
+    } });
+    try {
+        await session.read(0, false, 1, undefined, true);
+        let displayed = false;
+        const playing = session.read(1, true, 1, undefined, true).then(() => { displayed = true; });
+        await settle();
+        assert.equal(displayed, false, 'buffering belongs before the first playback image');
+        finishNext(new ArrayBuffer(1));
+        await playing;
+        assert.equal(displayed, true, 'a further pending chunk must not hold the ready image');
+    } finally {
+        session.clear(1);
+        finishNext?.(new ArrayBuffer(1));
+        finishLater?.(new ArrayBuffer(1));
     }
 });
 
@@ -216,6 +244,60 @@ test('optional previews preserve logical dimensions and do not replace annotatio
         session.clear(1);
     }
 });
+
+test('paused refinement can display one full-quality frame without downloading its whole chunk',
+    { timeout: 2000 }, async () => {
+        const session = createSession({ chunkSize: 8, getChunk: () => new Promise(() => {}) });
+        try {
+            const full = await session.read(7, false, 1, undefined, 'frame');
+            assert.equal(full.imageData.preview, false);
+            assert.equal(full.imageData.number, 7);
+            assert.equal(full.renderWidth, 32);
+            assert.equal(full.renderHeight, 24);
+            assert.equal((await session.read(7, false, 1, undefined, true)).imageData.preview, true);
+        } finally {
+            session.clear(1);
+        }
+    });
+
+test('individual-frame refinement falls back to existing chunks when unavailable', async () => {
+    const session = createSession({ getImageFrame: async () => {
+        throw Object.assign(new Error('Unsupported frame endpoint'), { code: 400 });
+    } });
+    try {
+        const full = await session.read(5, false, 1, undefined, 'frame');
+        assert.equal(full.imageData.preview, false);
+        assert.equal(full.renderWidth, 32);
+        assert.equal(full.renderHeight, 24);
+    } finally {
+        session.clear(1);
+    }
+});
+
+test('cancelling optional refinement does not download a chunk and a later pause can refine again',
+    { timeout: 2000 }, async () => {
+        let finish;
+        const session = createSession({ getImageFrame: (_, signal) => new Promise((resolve, reject) => {
+            finish = resolve;
+            signal.addEventListener('abort', () => reject(new Error('Cancelled')), { once: true });
+        }) });
+        try {
+            const frame = await session.getFrame(
+                1, 1, 'imageset', 'annotation', 5, 0, false, 1, session.DimensionType.DIMENSION_2D,
+                async () => { throw new Error('Cancelled refinement must not download a chunk'); },
+            );
+            const cancelled = assert.rejects(frame.data(undefined, 'frame'), (error) => error === 5);
+            await settle();
+            frame.cancelRefinement();
+            await cancelled;
+            const retried = frame.data(undefined, 'frame');
+            await settle();
+            finish({ number: 5 });
+            assert.equal((await retried).imageData.number, 5);
+        } finally {
+            session.clear(1);
+        }
+    });
 
 test('an older server falls back once, then keeps working with existing chunks', async () => {
     let attempts = 0;

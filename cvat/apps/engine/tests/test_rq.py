@@ -4,13 +4,16 @@
 
 import unittest
 import uuid
+from time import sleep
 from unittest import mock
 
 import django_rq
 from django.conf import settings
 from django_rq.queues import DjangoRQ
-from rq.job import Dependency, Job
+from rq import Queue
+from rq.job import Dependency, Job, JobStatus
 
+from cvat.apps.engine.cache import Callback, enqueue_create_chunk_job
 from cvat.apps.engine.rq import define_dependent_job
 from cvat.apps.engine.tests.utils import clear_rq_jobs
 
@@ -42,6 +45,27 @@ def _enqueue_test_job(
 def _set_rq_async_mode(is_async) -> None:
     for config in settings.RQ_QUEUES.values():
         config["ASYNC"] = is_async
+
+
+class TestCreateChunkJob(unittest.TestCase):
+    def test_replacement_survives_previous_result_expiry(self):
+        queue = Queue(
+            f"chunk-expiry-test-{uuid.uuid4().hex}",
+            connection=django_rq.get_connection(settings.CVAT_QUEUES.CHUNKS.value),
+        )
+        self.addCleanup(queue.delete, delete_jobs=True)
+        job = queue.enqueue(dummy_task, job_id=queue.name)
+        # Reproduce a consumed job whose result is about to expire.
+        queue.connection.lrem(queue.key, 0, job.id)
+        job.set_status(JobStatus.FINISHED)
+        queue.connection.pexpire(job.key, 1000)
+
+        enqueue_create_chunk_job(queue, job.id, Callback(callable=dummy_task))
+        sleep(1.15)
+
+        replacement = queue.fetch_job(job.id)
+        self.assertIsNotNone(replacement)
+        self.assertEqual(replacement.perform(), 4)
 
 
 class TestDefineDependentJob(unittest.TestCase):

@@ -1743,6 +1743,19 @@ async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer>
     }
 }
 
+async function getFrame(jid: number, number: number, signal: AbortSignal): Promise<Blob> {
+    try {
+        const response = await Axios.get(`${config.backendAPI}/jobs/${jid}/data`, {
+            params: { quality: ChunkQuality.COMPRESSED, type: 'frame', number },
+            responseType: 'blob',
+            signal,
+        });
+        return response.data;
+    } catch (errorData) {
+        throw generateError(errorData);
+    }
+}
+
 async function getData(jid: number, chunk: number, quality: ChunkQuality, preview = false): Promise<ArrayBuffer> {
     const { backendAPI } = config;
     const pageWasVisible = isPageVisible();
@@ -2815,6 +2828,7 @@ export default Object.freeze({
 
     frames: Object.freeze({
         getData,
+        getFrame,
         getAudioChunk,
         getMeta,
         saveMeta,
