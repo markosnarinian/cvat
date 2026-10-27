@@ -16,6 +16,7 @@ function createSession({
     chunkSize = 1, size = 12, getChunk = async () => new ArrayBuffer(0),
     getPreviewChunk = async () => new ArrayBuffer(1), mode = 'annotation',
     getImageFrame = async (number) => ({ number }),
+    width = 32, height = 24,
 } = {}) {
     class Bitmap {
         closed = false;
@@ -38,7 +39,7 @@ function createSession({
         getFrame: (_, number, signal) => getImageFrame(number, signal), getMeta: async () => ({
         chunk_size: chunkSize,
         deleted_frames: [],
-        frames: [{ width: 32, height: 24, name: 'frame.png', related_files: 0 }],
+        frames: [{ width, height, name: 'frame.png', related_files: 0 }],
         size,
         start_frame: 0,
         stop_frame: size - 1,
@@ -140,24 +141,30 @@ test('playback prefetches after a cold load, including one-frame chunks', async 
     try {
         await session.read(0);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        await session.read(0, false);
         let misses = 0;
         await session.read(1, true, 1, () => { misses++; });
         assert.equal(misses, 0, 'the next frame must already be buffered');
+        await settle();
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'evict the frame behind playback, not an older prefetched future frame');
+        await session.read(2, true, 1, () => { misses++; });
+        assert.equal(misses, 0, 'do not download the prefetched next frame a second time');
     } finally {
         session.clear(1);
     }
 });
 
-test('look-ahead respects chunk boundaries, reverse steps, pause, and the end of the job', async () => {
+test('paused look-ahead fills ahead and respects chunk boundaries, reverse steps, and job end', async () => {
     const session = createSession({ chunkSize: 3, size: 8 });
     try {
         await session.read(0, false);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0], 'paused jobs do not eagerly buffer');
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2], 'pause fills available look-ahead');
         await session.read(7);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 2], 'no chunk beyond the last frame');
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2], 'no chunk beyond the last frame');
         await session.read(7, true, -1);
         await settle();
         assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2]);
@@ -180,7 +187,7 @@ test('a failed speculative download does not interrupt playback and can be retri
         fail = false;
         await session.read(0);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     } finally {
         session.clear(1);
     }
@@ -202,10 +209,67 @@ test('a speculative download completing after job close does not affect a reopen
         await session.read(5, false);
         finishDownload(new ArrayBuffer(0));
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [5]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [5, 6, 7, 8, 9, 10, 11]);
         assert.ok((await session.read(5, false)).imageData);
     } finally {
         session.clear(1);
+    }
+});
+
+test('full-quality startup displays one image, then buffers two 4K chunks within the decoded budget', async () => {
+    let finishCurrent;
+    const requested = [];
+    const session = createSession({
+        width: 3840, height: 2160, chunkSize: 32, size: 128,
+        getChunk: async (index) => {
+            requested.push(index);
+            return index === 0 ? new Promise((resolve) => { finishCurrent = resolve; }) : new ArrayBuffer(0);
+        },
+    });
+    try {
+        const first = await session.read(0, false, 1, undefined, 'buffered');
+        assert.equal(first.imageData.preview, false);
+        assert.equal(first.renderWidth, 3840);
+        assert.equal(first.renderHeight, 2160);
+        await settle();
+        assert.deepEqual(requested, [0], 'the first image does not wait for the whole chunk');
+        finishCurrent(new ArrayBuffer(0));
+        await settle();
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1], 'buffer ahead while paused');
+        assert.deepEqual(requested, [0, 1], 'do not exceed the two-chunk decoded budget');
+        let misses = 0;
+        const next = await session.read(32, true, 1, () => { misses++; });
+        assert.equal(misses, 0);
+        assert.equal(next.imageData.preview, false);
+        await settle();
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [1, 2]);
+        assert.equal(next.imageData.closed, false, 'keep the displayed chunk alive');
+    } finally {
+        session.clear(1);
+        finishCurrent?.(new ArrayBuffer(0));
+    }
+});
+
+test('pause during an in-flight look-ahead continues filling, and a seek redirects the chain', async () => {
+    let finishNext;
+    const requested = [];
+    const session = createSession({ size: 30, getChunk: async (index) => {
+        requested.push(index);
+        return index === 1 ? new Promise((resolve) => { finishNext = resolve; }) : new ArrayBuffer(0);
+    } });
+    try {
+        await session.read(0);
+        await session.read(0, false);
+        finishNext(new ArrayBuffer(0));
+        await settle();
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        await session.read(20, false);
+        await settle();
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
+        assert.ok(!requested.includes(10), 'do not continue filling from the old position');
+    } finally {
+        session.clear(1);
+        finishNext?.(new ArrayBuffer(0));
     }
 });
 
@@ -223,6 +287,11 @@ test('decoding ahead evicts the least recently used chunk, not the current frame
         assert.equal(current.closed, false, 'prefetch must not close the image being displayed');
         assert.equal(decoder.frame(0), current);
         assert.deepEqual(Array.from(decoder.cachedChunks()), [0, 2]);
+        decoder.cleanup(1, [2]);
+        await decode(1);
+        assert.deepEqual(Array.from(decoder.cachedChunks()), [1, 2],
+            'protect the future frame even when a frame behind playback was accessed more recently');
+        assert.equal(current.closed, true, 'release the discarded bitmap');
     } finally {
         decoder.close();
     }

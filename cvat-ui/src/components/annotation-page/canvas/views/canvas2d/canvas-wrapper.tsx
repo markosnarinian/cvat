@@ -107,6 +107,7 @@ interface StateToProps {
     contrastLevel: number;
     saturationLevel: number;
     resetZoom: boolean;
+    reducedResolution: boolean;
     smoothImage: boolean;
     focusedObjectPadding: number;
     showObjectsTextAlways: boolean;
@@ -201,6 +202,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 contrastLevel,
                 saturationLevel,
                 resetZoom,
+                reducedResolution,
                 smoothImage,
             },
             workspace: {
@@ -256,6 +258,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         contrastLevel: contrastLevel / 100,
         saturationLevel: saturationLevel / 100,
         resetZoom,
+        reducedResolution,
         smoothImage,
         focusedObjectPadding,
         showObjectsTextAlways,
@@ -520,6 +523,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
         if (prevProps.frameData !== frameData || prevProps.imageFilters !== imageFilters ||
+            prevProps.reducedResolution !== this.props.reducedResolution ||
             (!prevProps.playing && this.props.playing)
         ) {
             prevProps.frameData?.cancelRefinement();
@@ -627,7 +631,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         }
 
         const playbackStopped = prevProps.playing && !this.props.playing;
-        if (playbackStopped) {
+        const qualityChanged = prevProps.reducedResolution !== this.props.reducedResolution;
+        if (playbackStopped || qualityChanged) {
             // Replace the playback preview with the existing annotation-quality image.
             canvasInstance.configure({ forceFrameUpdate: true });
         }
@@ -636,7 +641,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             prevProps.annotations !== annotations ||
             prevProps.frameData !== frameData ||
             prevProps.hiddenZLayers !== hiddenZLayers ||
-            prevProps.renderData !== renderData || playbackStopped
+            prevProps.renderData !== renderData || playbackStopped || qualityChanged
         ) {
             this.updateCanvas();
         } else if (prevProps.imageFilters !== imageFilters) {
@@ -1069,7 +1074,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private updateCanvas(fullQuality = false): void {
         const {
             hiddenZLayers, annotations, frameData,
-            workspace, frame, imageFilters, renderData, playing, jobInstance,
+            workspace, frame, imageFilters, renderData, playing, jobInstance, reducedResolution,
         } = this.props;
 
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
@@ -1084,13 +1089,15 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                     if (prop === 'data') {
                         return async (...args: any[]) => {
                             // Pixel-processing tools need the annotation-quality bitmap.
-                            const progressive = !imageFilters.length && jobInstance.dataChunkType === 'imageset';
-                            const originalImage = await _frameData.data(
-                                args[0], progressive && fullQuality ? 'frame' : progressive,
-                            );
+                            const progressive = reducedResolution && !imageFilters.length &&
+                                jobInstance.dataChunkType === 'imageset';
+                            let representation: boolean | 'frame' | 'buffered' = playing ? false : 'buffered';
+                            if (progressive) representation = fullQuality ? 'frame' : true;
+                            const originalImage = await _frameData.data(args[0], representation);
                             if (progressive && !playing && !fullQuality) {
                                 const stillRelevant = (): boolean => !this.unmounted &&
                                     this.props.frameData === _frameData && !this.props.playing &&
+                                    this.props.reducedResolution === reducedResolution &&
                                     this.props.imageFilters === imageFilters;
                                 // Brief navigation stops must not start detail downloads
                                 // that compete with playback immediately afterwards.

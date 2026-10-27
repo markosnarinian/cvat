@@ -108,24 +108,26 @@ _For alternative deployments (AWS, Kubernetes, external PostgreSQL, backups, upg
 
 ### Installing this fork's frame-buffering fix on an existing Docker deployment
 
-The fork starts look-ahead buffering after cold frame loads, retains recently viewed chunks, and uses
-small, cached JPEG previews for 2D image navigation and playback. Previews are generated on demand for
-**existing tasks**; no re-upload, task conversion, database migration, environment variable, or browser
-setting is required.
-Paused frames progressively refine to the existing annotation-quality images; pixel-processing tools
-always use that quality. Source files, annotation coordinates, exports, and existing compressed/original
-API responses are unchanged.
-Refinement fetches only the selected image, with the existing chunk path as a fallback. Brief pauses
-under 250 ms do not start detail downloads that would compete with immediate playback or navigation.
-Starting playback or leaving the frame cancels any optional refinement still in flight.
+The fork preserves normal CVAT task image quality by default, including during playback and at high
+zoom. It fills look-ahead even while paused, using the existing approximately 2 GiB decoded-image
+budget (at most 10 chunks). Opening or seeking a 2D image job first fetches the selected full-quality
+image, then buffers full-quality chunks without waiting for another navigation event. Existing chunks
+are reused when available. These changes work for **existing tasks**; no re-upload, task conversion,
+database migration, environment variable, or browser setting is required. Normal task quality means
+the existing compressed representation, not recovery of detail discarded during task creation.
+Source files, annotation coordinates, exports, and existing compressed/original API responses are unchanged.
 
-The preview stream reduces image resolution and JPEG quality while playing or waiting for image detail.
-Opening a job or seeking first displays a preview; paused frames recover the existing image quality
-without blanking the preview during loading. Video and point-cloud representations are unchanged.
+**Settings → Player → Allow reduced-resolution playback** is an optional, persisted client setting,
+disabled by default. Enabling it uses separately cached 512px JPEG previews for image playback, with
+an additional 64 MiB decoded-preview budget. This sacrifices resolution and JPEG quality, and is not
+a perceptually lossless or zoom-adaptive mode. Paused previews refine to normal task quality after
+250 ms without blanking the image; pixel-processing tools always use task quality. Starting playback
+or leaving the frame cancels optional refinement still in flight. The UI falls back to normal chunks
+if the server lacks preview support. Video and point-cloud representations are unchanged.
 Video playback can prime one decoded chunk, waiting at most one second before its first buffered frame.
 Canvas resize/annotation updates no longer mark an image ready while
-it is still loading. The UI falls back to existing chunks if the server lacks preview support.
-Playback primes a small look-ahead window (at most one extra second after the first preview arrives)
+it is still loading. Optional preview playback primes a small look-ahead window
+(at most one extra second after the first preview arrives)
 and pipelines bounded transfers to hide network round-trip latency.
 Recreating an expired chunk result also clears the previous queue job's expiry, preventing a queued
 replacement from disappearing and forcing a chunk timeout/retry.

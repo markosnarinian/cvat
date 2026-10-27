@@ -32,6 +32,7 @@ export enum SettingsActionTypes {
     CHANGE_SHOW_GROUND_TRUTH = 'CHANGE_SHOW_GROUND_TRUTH',
     CHANGE_FRAME_STEP = 'CHANGE_FRAME_STEP',
     CHANGE_FRAME_SPEED = 'CHANGE_FRAME_SPEED',
+    SWITCH_REDUCED_RESOLUTION = 'SWITCH_REDUCED_RESOLUTION',
     SWITCH_RESET_ZOOM = 'SWITCH_RESET_ZOOM',
     SWITCH_SMOOTH_IMAGE = 'SWITCH_SMOOTH_IMAGE',
     SWITCH_TEXT_FONT_SIZE = 'SWITCH_TEXT_FONT_SIZE',
@@ -196,6 +197,13 @@ export function changeFrameSpeed(frameSpeed: number): AnyAction {
         payload: {
             frameSpeed,
         },
+    };
+}
+
+export function switchReducedResolution(reducedResolution: boolean): AnyAction {
+    return {
+        type: SettingsActionTypes.SWITCH_REDUCED_RESOLUTION,
+        payload: { reducedResolution },
     };
 }
 

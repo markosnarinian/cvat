@@ -8,6 +8,7 @@ import PlayerSettingsComponent from 'components/header/settings-modal/player-set
 import {
     changeFrameStep,
     changeFrameSpeed,
+    switchReducedResolution,
     switchResetZoom,
     switchRotateAll,
     changeCanvasBackgroundColor,
@@ -19,6 +20,7 @@ import { CombinedState, FrameSpeed } from 'reducers';
 interface StateToProps {
     frameStep: number;
     frameSpeed: FrameSpeed;
+    reducedResolution: boolean;
     resetZoom: boolean;
     rotateAll: boolean;
     smoothImage: boolean;
@@ -29,6 +31,7 @@ interface StateToProps {
 interface DispatchToProps {
     onChangeFrameStep(step: number): void;
     onChangeFrameSpeed(speed: FrameSpeed): void;
+    onSwitchReducedResolution(enabled: boolean): void;
     onSwitchResetZoom(enabled: boolean): void;
     onSwitchRotateAll(rotateAll: boolean): void;
     onChangeCanvasBackgroundColor(color: string): void;
@@ -51,6 +54,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         onChangeFrameSpeed(speed: FrameSpeed): void {
             dispatch(changeFrameSpeed(speed));
+        },
+        onSwitchReducedResolution(enabled: boolean): void {
+            dispatch(switchReducedResolution(enabled));
         },
         onSwitchResetZoom(enabled: boolean): void {
             dispatch(switchResetZoom(enabled));

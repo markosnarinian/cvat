@@ -53,6 +53,7 @@ const defaultState: SettingsState = {
         canvasBackgroundColor: '#ffffff',
         frameStep: 10,
         frameSpeed: FrameSpeed.Usual,
+        reducedResolution: false,
         resetZoom: false,
         rotateAll: false,
         smoothImage: true,
@@ -207,6 +208,15 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
                 player: {
                     ...state.player,
                     frameSpeed: action.payload.frameSpeed,
+                },
+            };
+        }
+        case SettingsActionTypes.SWITCH_REDUCED_RESOLUTION: {
+            return {
+                ...state,
+                player: {
+                    ...state.player,
+                    reducedResolution: action.payload.reducedResolution,
                 },
             };
         }

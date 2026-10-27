@@ -134,15 +134,16 @@ export class FrameDecoder {
         return Object.keys(this.decodedChunks).length < this.cachedChunksLimit;
     }
 
-    cleanup(extra = 1): void {
+    cleanup(extra = 1, protectedChunks: number[] = []): void {
         // argument allows us to specify how many chunks we want to write after clear
         const chunks = Object.keys(this.decodedChunks).map((chunk: string) => +chunk);
         let { length } = chunks;
         while (length > this.cachedChunksLimit - Math.min(extra, this.cachedChunksLimit)) {
-            const lastChunk = this.orderedStack.pop();
+            const lastChunk = [...this.orderedStack].reverse().find((chunk) => !protectedChunks.includes(chunk));
             if (typeof lastChunk === 'undefined') {
                 return;
             }
+            this.orderedStack = this.orderedStack.filter((chunk) => chunk !== lastChunk);
 
             for (const frame of Object.keys(this.decodedChunks[lastChunk])) {
                 const data = this.decodedChunks[lastChunk][frame];

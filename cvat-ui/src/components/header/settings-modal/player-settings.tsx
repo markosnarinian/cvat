@@ -24,6 +24,7 @@ import { usePlugins } from 'utils/hooks';
 interface Props {
     frameStep: number;
     frameSpeed: FrameSpeed;
+    reducedResolution: boolean;
     resetZoom: boolean;
     rotateAll: boolean;
     smoothImage: boolean;
@@ -31,6 +32,7 @@ interface Props {
     canvasBackgroundColor: string;
     onChangeFrameStep(step: number): void;
     onChangeFrameSpeed(speed: FrameSpeed): void;
+    onSwitchReducedResolution(enabled: boolean): void;
     onSwitchResetZoom(enabled: boolean): void;
     onSwitchRotateAll(rotateAll: boolean): void;
     onChangeCanvasBackgroundColor(color: string): void;
@@ -42,6 +44,7 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
     const {
         frameStep,
         frameSpeed,
+        reducedResolution,
         resetZoom,
         rotateAll,
         smoothImage,
@@ -49,6 +52,7 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
         canvasBackgroundColor,
         onChangeFrameStep,
         onChangeFrameSpeed,
+        onSwitchReducedResolution,
         onSwitchResetZoom,
         onSwitchRotateAll,
         onSwitchSmoothImage,
@@ -137,6 +141,29 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
             </Col>
         </Row>
     ), 10]);
+
+    items.push([(
+        <Row key='playback-quality' className='cvat-player-settings-quality cvat-player-setting'>
+            <Col span={24}>
+                <Checkbox
+                    className='cvat-text-color'
+                    checked={reducedResolution}
+                    onChange={(event: CheckboxChangeEvent): void => {
+                        onSwitchReducedResolution(event.target.checked);
+                    }}
+                >
+                    Allow reduced-resolution playback
+                </Checkbox>
+            </Col>
+            <Col span={24}>
+                <Text type='secondary'>
+                    Off by default: preserve task image quality at every zoom level.
+                    Enable for 512px playback previews; paused images return to task quality.
+                    The player buffers ahead even while paused (2 GiB decoded-image target).
+                </Text>
+            </Col>
+        </Row>
+    ), 15]);
 
     items.push([(
         <Row key='canvas-background' className='cvat-player-settings-canvas-background cvat-player-setting'>

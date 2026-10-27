@@ -26,8 +26,9 @@ const frameDataCache: Record<string, {
     latestFrameDecodeRequest: number | null;
     latestContextImagesRequest: number | null;
     provider: FrameDecoder;
-    prefetchAnalyzer: PrefetchAnalyzer;
     decodedBlocksCacheSize: number;
+    currentChunkIndex: number;
+    prefetch: () => void;
     activeChunkRequest: Promise<void> | null;
     activeContextRequest: Promise<Record<number, ImageBitmap>> | null;
     segmentFrameNumbers: number[];
@@ -402,7 +403,7 @@ export class FrameData {
         );
     }
 
-    async data(onServerRequest = () => {}, representation: boolean | 'frame' = false): Promise<{
+    async data(onServerRequest = () => {}, representation: boolean | 'frame' | 'buffered' = false): Promise<{
         renderWidth: number;
         renderHeight: number;
         imageData: ImageBitmap | Blob;
@@ -410,8 +411,13 @@ export class FrameData {
         const result = await PluginRegistry.apiWrapper.call(
             this, FrameData.prototype.data, onServerRequest,
             representation === true ? this.#previewKey : null,
-            representation === 'frame' && this.#previewKey !== null,
+            (representation === 'frame' || representation === 'buffered') && this.#previewKey !== null,
         );
+        if (representation === 'buffered' && this.#previewKey !== null) {
+            // Do not compete with the first full-quality image's transfer.
+            // Once it arrives, fill the normal chunk cache even while paused.
+            this.data().catch(() => {});
+        }
         return result;
     }
 
@@ -422,66 +428,14 @@ export class FrameData {
     }
 }
 
-class PrefetchAnalyzer {
-    #requestedFrames: number[];
-    #meta: FramesMetaData;
-    #getDataFrameNumber: (frameNumber: number) => number;
-
-    constructor(meta: FramesMetaData, dataFrameNumberGetter: (frameNumber: number) => number) {
-        this.#requestedFrames = [];
-        this.#meta = meta;
-        this.#getDataFrameNumber = dataFrameNumberGetter;
-    }
-
-    shouldPrefetchNext(current: number, isPlaying: boolean, isChunkCached: (chunk) => boolean): boolean {
-        if (isPlaying) {
-            return true;
-        }
-
-        const currentDataFrameNumber = this.#getDataFrameNumber(current);
-        const currentChunk = this.#meta.getFrameChunkIndex(currentDataFrameNumber);
-        const { length } = this.#requestedFrames;
-        const isIncreasingOrder = this.#requestedFrames
-            .every((val, index) => index === 0 || val > this.#requestedFrames[index - 1]);
-        if (
-            length && (isIncreasingOrder && current > this.#requestedFrames[length - 1]) &&
-            (
-                this.#meta.getFrameIndex(currentDataFrameNumber) % this.#meta.chunkSize
-            ) >= Math.ceil(this.#meta.chunkSize / 2) &&
-            !isChunkCached(currentChunk + 1)
-        ) {
-            // is increasing order including the current frame
-            // if current is in the middle+ of the chunk
-            // if the next chunk was not cached yet
-            return true;
-        }
-
-        return false;
-    }
-
-    addRequested(frame: number): void {
-        // latest requested frame is bubbling (array is unique)
-        const indexOf = this.#requestedFrames.indexOf(frame);
-        if (indexOf !== -1) {
-            this.#requestedFrames.splice(indexOf, 1);
-        }
-
-        this.#requestedFrames.push(frame);
-
-        // only half of chunk size is considered in this logic
-        const limit = Math.ceil(this.#meta.chunkSize / 2);
-        if (this.#requestedFrames.length > limit) {
-            this.#requestedFrames.shift();
-        }
-    }
-}
-
 Object.defineProperty(FrameData.prototype.data, 'implementation', {
     async value(this: FrameData, onServerRequest, previewKey: string | null, individualFrame: boolean) {
         const cacheKey = previewKey && !frameDataCache[this.jobID].previewUnavailable ?
             previewKey : String(this.jobID);
         const cache = frameDataCache[cacheKey];
         if (individualFrame && !cache.previewUnavailable) {
+            const bufferedImage = cache.provider.frame(this.number);
+            if (bufferedImage) return { renderWidth: this.width, renderHeight: this.height, imageData: bufferedImage };
             const cached = individualFrames.get(this);
             if (cached?.cache === cache) return cached.data;
 
@@ -511,7 +465,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
             return data;
         }
         const {
-            provider, prefetchAnalyzer, chunkSize, jobStartFrame,
+            provider, chunkSize, jobStartFrame,
             decodeForward, forwardStep, decodedBlocksCacheSize, segmentFrameNumbers,
         } = cache;
         const meta = await cache.getMeta();
@@ -525,6 +479,8 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
             const requestedDataFrameNumber = meta.getDataFrameNumber(this.number - jobStartFrame);
             const chunkIndex = meta.getFrameChunkIndex(requestedDataFrameNumber);
             const frame = provider.frame(this.number);
+            cache.latestFrameDecodeRequest = requestId;
+            cache.currentChunkIndex = chunkIndex;
 
             function findTheNextNotDecodedChunk(currentFrameIndex: number): number | null {
                 const { chunkCount } = meta;
@@ -548,19 +504,16 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
 
             const prefetch = (): void => {
                 if (
-                    prefetchAnalyzer.shouldPrefetchNext(
-                        this.number,
-                        decodeForward,
-                        (chunk) => provider.isChunkCached(chunk),
-                    ) && decodedBlocksCacheSize > 1 && !cache.activeChunkRequest &&
-                    frameDataCache[cacheKey] === cache
+                    decodedBlocksCacheSize > 1 && !cache.activeChunkRequest &&
+                    frameDataCache[cacheKey] === cache && cache.latestFrameDecodeRequest === requestId &&
+                    provider.isChunkCached(chunkIndex)
                 ) {
                     const nextChunkIndex = findTheNextNotDecodedChunk(
                         meta.getFrameIndex(requestedDataFrameNumber),
                     );
-                    const predecodeChunksMax = Math.floor(decodedBlocksCacheSize / 2);
+                    const predecodeChunksMax = decodedBlocksCacheSize - 1;
                     if (nextChunkIndex !== null &&
-                        nextChunkIndex <= chunkIndex + predecodeChunksMax
+                        Math.abs(nextChunkIndex - chunkIndex) <= predecodeChunksMax
                     ) {
                         cache.activeChunkRequest = new Promise((resolveForward) => {
                             const releasePromise = (): void => {
@@ -577,7 +530,20 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                     return;
                                 }
 
-                                provider.cleanup(1);
+                                const inLookAhead = (index: number): boolean => (
+                                    (index - cache.currentChunkIndex) * cache.forwardStep >= 0 &&
+                                    Math.abs(index - cache.currentChunkIndex) < decodedBlocksCacheSize
+                                );
+                                if (!inLookAhead(nextChunkIndex)) {
+                                    // Navigation changed while downloading. Do not evict
+                                    // useful frames to decode an obsolete speculative chunk.
+                                    releasePromise();
+                                    cache.prefetch();
+                                    return;
+                                }
+                                // LRU alone would evict older prefetched future chunks
+                                // before recently displayed (but now behind) chunks.
+                                provider.cleanup(1, provider.cachedChunks().filter(inLookAhead));
                                 provider.requestDecodeBlock(
                                     chunk,
                                     nextChunkIndex,
@@ -586,7 +552,13 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                         (nextChunkIndex + 1) * chunkSize,
                                     ),
                                     () => {},
-                                    releasePromise,
+                                    () => {
+                                        releasePromise();
+                                        // Fill the available look-ahead without requiring
+                                        // playback or another navigation event. A seek or
+                                        // job close invalidates this chain above.
+                                        cache.prefetch();
+                                    },
                                     releasePromise,
                                 );
                             }).catch(() => {
@@ -596,6 +568,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                     }
                 }
             };
+            cache.prefetch = prefetch;
 
             if (frame) {
                 prefetch();
@@ -627,12 +600,10 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                 } else {
                     display();
                 }
-                prefetchAnalyzer.addRequested(this.number);
                 return;
             }
 
             onServerRequest();
-            cache.latestFrameDecodeRequest = requestId;
             (cache.activeChunkRequest || Promise.resolve()).finally(() => {
                 if (frameDataCache[cacheKey] !== cache || cache.latestFrameDecodeRequest !== requestId) {
                     // not relevant request anymore
@@ -648,7 +619,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         renderHeight: this.height,
                         imageData: currentFrame,
                     });
-                    prefetchAnalyzer.addRequested(this.number);
+                    prefetch();
                     return;
                 }
 
@@ -691,7 +662,6 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                                 renderHeight: this.height,
                                                 imageData: bitmap,
                                             });
-                                            prefetchAnalyzer.addRequested(this.number);
                                         }
                                     },
                                     () => {
@@ -1022,9 +992,10 @@ export async function getFrame(
             meta.frames.length,
         );
 
-        // Reserve 64 MiB of the existing 2 GiB budget for image playback previews.
+        // Keep the full 2 GiB budget for normal-quality frames. Reserving preview
+        // space here disables look-ahead for two otherwise-fitting 4K chunks.
         const decodedBlocksCacheSize = Math.min(
-            Math.floor(((2048 - (previewEligible ? 64 : 0)) * 1024 * 1024) /
+            Math.floor((2048 * 1024 * 1024) /
                 ((mean + stdDev) * 4 * chunkSize)) || 1, 10,
         );
 
@@ -1048,8 +1019,9 @@ export async function getFrame(
                 ),
                 dimension,
             ),
-            prefetchAnalyzer: new PrefetchAnalyzer(meta, dataFrameNumberGetter),
             decodedBlocksCacheSize,
+            currentChunkIndex: 0,
+            prefetch: () => {},
             activeChunkRequest: null,
             activeContextRequest: null,
             latestFrameDecodeRequest: null,
@@ -1127,9 +1099,8 @@ export async function getFrame(
                     dimension,
                 ),
                 decodedBlocksCacheSize,
-                prefetchAnalyzer: new PrefetchAnalyzer(
-                    meta, (number) => meta.getDataFrameNumber(number - jobStartFrame),
-                ),
+                currentChunkIndex: 0,
+                prefetch: () => {},
                 activeChunkRequest: null,
                 latestFrameDecodeRequest: null,
                 getChunk: async (index) => {
