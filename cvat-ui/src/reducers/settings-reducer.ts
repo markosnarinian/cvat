@@ -54,6 +54,7 @@ const defaultState: SettingsState = {
         frameStep: 10,
         frameSpeed: FrameSpeed.Usual,
         reducedResolution: false,
+        frameBufferMultiplier: 10,
         resetZoom: false,
         rotateAll: false,
         smoothImage: true,
@@ -217,6 +218,15 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
                 player: {
                     ...state.player,
                     reducedResolution: action.payload.reducedResolution,
+                },
+            };
+        }
+        case SettingsActionTypes.CHANGE_FRAME_BUFFER_MULTIPLIER: {
+            return {
+                ...state,
+                player: {
+                    ...state.player,
+                    frameBufferMultiplier: action.payload.frameBufferMultiplier,
                 },
             };
         }

@@ -27,6 +27,7 @@ const frameDataCache: Record<string, {
     latestContextImagesRequest: number | null;
     provider: FrameDecoder;
     decodedBlocksCacheSize: number;
+    frameBufferMultiplier: number;
     currentChunkIndex: number;
     prefetch: () => void;
     activeChunkRequest: Promise<void> | null;
@@ -992,11 +993,11 @@ export async function getFrame(
             meta.frames.length,
         );
 
-        // Keep the full 2 GiB budget for normal-quality frames. Reserving preview
-        // space here disables look-ahead for two otherwise-fitting 4K chunks.
+        // Scale look-ahead at normal task quality using this client's setting.
+        // Preview frames have a separate budget, so they cannot reduce this window.
         const decodedBlocksCacheSize = Math.min(
-            Math.floor((2048 * 1024 * 1024) /
-                ((mean + stdDev) * 4 * chunkSize)) || 1, 10,
+            Math.floor((2048 * config.frameBufferMultiplier * 1024 * 1024) /
+                ((mean + stdDev) * 4 * chunkSize)) || 1, 10 * config.frameBufferMultiplier,
         );
 
         const dataFrameNumberGetter = (frameNumber: number): number => (
@@ -1020,6 +1021,7 @@ export async function getFrame(
                 dimension,
             ),
             decodedBlocksCacheSize,
+            frameBufferMultiplier: config.frameBufferMultiplier,
             currentChunkIndex: 0,
             prefetch: () => {},
             activeChunkRequest: null,
@@ -1077,7 +1079,8 @@ export async function getFrame(
                 return Math.max(largest, Math.ceil(width * scale) * Math.ceil(height * scale));
             }, 1);
             const decodedBlocksCacheSize = Math.min(
-                Math.floor((64 * 1024 * 1024) / (previewFramePixels * 4 * chunkSize)) || 1, 10,
+                Math.floor((64 * baseCache.frameBufferMultiplier * 1024 * 1024) /
+                    (previewFramePixels * 4 * chunkSize)) || 1, 10 * baseCache.frameBufferMultiplier,
             );
             const downloads = new Map<number, Promise<ArrayBuffer>>();
             const download = (index: number): Promise<ArrayBuffer> => {

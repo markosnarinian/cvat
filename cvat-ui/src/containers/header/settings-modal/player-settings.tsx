@@ -9,6 +9,7 @@ import {
     changeFrameStep,
     changeFrameSpeed,
     switchReducedResolution,
+    changeFrameBufferMultiplier,
     switchResetZoom,
     switchRotateAll,
     changeCanvasBackgroundColor,
@@ -21,6 +22,7 @@ interface StateToProps {
     frameStep: number;
     frameSpeed: FrameSpeed;
     reducedResolution: boolean;
+    frameBufferMultiplier: number;
     resetZoom: boolean;
     rotateAll: boolean;
     smoothImage: boolean;
@@ -32,6 +34,7 @@ interface DispatchToProps {
     onChangeFrameStep(step: number): void;
     onChangeFrameSpeed(speed: FrameSpeed): void;
     onSwitchReducedResolution(enabled: boolean): void;
+    onChangeFrameBufferMultiplier(value: number): void;
     onSwitchResetZoom(enabled: boolean): void;
     onSwitchRotateAll(rotateAll: boolean): void;
     onChangeCanvasBackgroundColor(color: string): void;
@@ -57,6 +60,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         onSwitchReducedResolution(enabled: boolean): void {
             dispatch(switchReducedResolution(enabled));
+        },
+        onChangeFrameBufferMultiplier(value: number): void {
+            dispatch(changeFrameBufferMultiplier(value));
         },
         onSwitchResetZoom(enabled: boolean): void {
             dispatch(switchResetZoom(enabled));

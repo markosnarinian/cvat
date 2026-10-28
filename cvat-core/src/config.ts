@@ -12,6 +12,7 @@ const config = {
     origin: '',
     uploadChunkSize: 100,
     opencvPath: '',
+    frameBufferMultiplier: 10,
     removeUnderlyingMaskPixels: {
         enabled: false,
         onEmptyMaskOccurrence: null,

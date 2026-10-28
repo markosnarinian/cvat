@@ -345,6 +345,15 @@ function build(): CVATCore {
             set jobMetaDataReloadPeriod(value) {
                 config.jobMetaDataReloadPeriod = value;
             },
+            get frameBufferMultiplier() {
+                return config.frameBufferMultiplier;
+            },
+            set frameBufferMultiplier(value: number) {
+                if (!Number.isInteger(value) || value < 1 || value > 10) {
+                    throw new ArgumentError('Frame buffer multiplier must be an integer from 1 to 10');
+                }
+                config.frameBufferMultiplier = value;
+            },
             get previewPlaceholders() {
                 return config.previewPlaceholders;
             },

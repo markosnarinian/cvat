@@ -11,7 +11,7 @@ import {
     CombinedState,
 } from 'reducers';
 import { OrientationVisibility } from 'cvat-canvas3d-wrapper';
-import { SerializedImageFilter } from 'cvat-core-wrapper';
+import { getCore, SerializedImageFilter } from 'cvat-core-wrapper';
 import { ImageFilter, ImageFilterAlias } from 'utils/image-processing';
 import GammaCorrection, { GammaFilterOptions } from 'utils/fabric-wrapper/gamma-correction';
 import { resolveConflicts } from 'utils/conflict-detector';
@@ -33,6 +33,7 @@ export enum SettingsActionTypes {
     CHANGE_FRAME_STEP = 'CHANGE_FRAME_STEP',
     CHANGE_FRAME_SPEED = 'CHANGE_FRAME_SPEED',
     SWITCH_REDUCED_RESOLUTION = 'SWITCH_REDUCED_RESOLUTION',
+    CHANGE_FRAME_BUFFER_MULTIPLIER = 'CHANGE_FRAME_BUFFER_MULTIPLIER',
     SWITCH_RESET_ZOOM = 'SWITCH_RESET_ZOOM',
     SWITCH_SMOOTH_IMAGE = 'SWITCH_SMOOTH_IMAGE',
     SWITCH_TEXT_FONT_SIZE = 'SWITCH_TEXT_FONT_SIZE',
@@ -204,6 +205,14 @@ export function switchReducedResolution(reducedResolution: boolean): AnyAction {
     return {
         type: SettingsActionTypes.SWITCH_REDUCED_RESOLUTION,
         payload: { reducedResolution },
+    };
+}
+
+export function changeFrameBufferMultiplier(frameBufferMultiplier: number): AnyAction {
+    getCore().config.frameBufferMultiplier = frameBufferMultiplier;
+    return {
+        type: SettingsActionTypes.CHANGE_FRAME_BUFFER_MULTIPLIER,
+        payload: { frameBufferMultiplier },
     };
 }
 
@@ -404,6 +413,9 @@ export function switchToolsBlockerState(toolsBlockerState: ToolsBlockerState): A
 }
 
 export function setSettings(settings: Partial<SettingsState>): AnyAction {
+    if (settings.player) {
+        getCore().config.frameBufferMultiplier = settings.player.frameBufferMultiplier;
+    }
     return {
         type: SettingsActionTypes.SET_SETTINGS,
         payload: {
@@ -476,6 +488,10 @@ export function restoreSettingsAsync(): ThunkAction {
         Object.entries(_.pick(newSettings, ['player', 'workspace'])).forEach(([sectionKey, section]) => {
             Object.keys(section).forEach((key) => {
                 const setValue = loadedSettings[sectionKey]?.[key];
+                if (key === 'frameBufferMultiplier' &&
+                    (!Number.isInteger(setValue) || setValue < 1 || setValue > 10)) {
+                    return;
+                }
                 if (setValue !== undefined) {
                     Object.defineProperty(newSettings[sectionKey as 'player' | 'workspace'], key, { value: setValue });
                 }

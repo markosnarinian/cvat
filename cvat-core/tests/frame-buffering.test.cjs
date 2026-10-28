@@ -17,6 +17,7 @@ function createSession({
     getPreviewChunk = async () => new ArrayBuffer(1), mode = 'annotation',
     getImageFrame = async (number) => ({ number }),
     width = 32, height = 24,
+    frameBufferMultiplier = 10,
 } = {}) {
     class Bitmap {
         closed = false;
@@ -73,6 +74,7 @@ function createSession({
         }, module, module.exports);
         return module.exports;
     }
+    load(path.resolve(__dirname, '../src/config.ts')).default.frameBufferMultiplier = frameBufferMultiplier;
     const frames = load(path.resolve(__dirname, '../src/frames.ts'));
     const data = load(path.resolve(__dirname, '../../cvat-data/src/ts/cvat-data.ts'));
     return {
@@ -137,17 +139,17 @@ test('preview playback buffers before its first image, not while later chunks ar
 });
 
 test('playback prefetches after a cold load, including one-frame chunks', async () => {
-    const session = createSession();
+    const session = createSession({ size: 120 });
     try {
         await session.read(0);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), Array.from({ length: 100 }, (_, i) => i));
         await session.read(0, false);
         let misses = 0;
         await session.read(1, true, 1, () => { misses++; });
         assert.equal(misses, 0, 'the next frame must already be buffered');
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), Array.from({ length: 100 }, (_, i) => i + 1),
             'evict the frame behind playback, not an older prefetched future frame');
         await session.read(2, true, 1, () => { misses++; });
         assert.equal(misses, 0, 'do not download the prefetched next frame a second time');
@@ -187,7 +189,7 @@ test('a failed speculative download does not interrupt playback and can be retri
         fail = false;
         await session.read(0);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     } finally {
         session.clear(1);
     }
@@ -216,11 +218,11 @@ test('a speculative download completing after job close does not affect a reopen
     }
 });
 
-test('full-quality startup displays one image, then buffers two 4K chunks within the decoded budget', async () => {
+test('full-quality startup displays one image, then buffers twenty 4K chunks within the decoded budget', async () => {
     let finishCurrent;
     const requested = [];
     const session = createSession({
-        width: 3840, height: 2160, chunkSize: 32, size: 128,
+        width: 3840, height: 2160, chunkSize: 32, size: 768,
         getChunk: async (index) => {
             requested.push(index);
             return index === 0 ? new Promise((resolve) => { finishCurrent = resolve; }) : new ArrayBuffer(0);
@@ -235,14 +237,15 @@ test('full-quality startup displays one image, then buffers two 4K chunks within
         assert.deepEqual(requested, [0], 'the first image does not wait for the whole chunk');
         finishCurrent(new ArrayBuffer(0));
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1], 'buffer ahead while paused');
-        assert.deepEqual(requested, [0, 1], 'do not exceed the two-chunk decoded budget');
+        const buffered = Array.from({ length: 20 }, (_, i) => i);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), buffered, 'buffer ahead while paused');
+        assert.deepEqual(requested, buffered, 'do not exceed the twenty-chunk decoded budget');
         let misses = 0;
         const next = await session.read(32, true, 1, () => { misses++; });
         assert.equal(misses, 0);
         assert.equal(next.imageData.preview, false);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [1, 2]);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), buffered.map((i) => i + 1));
         assert.equal(next.imageData.closed, false, 'keep the displayed chunk alive');
     } finally {
         session.clear(1);
@@ -250,10 +253,37 @@ test('full-quality startup displays one image, then buffers two 4K chunks within
     }
 });
 
+test('client buffer multiplier scales both the decoded pixel budget and the chunk cap', async () => {
+    for (const multiplier of [1, 3, 10]) {
+        for (const largeImages of [false, true]) {
+            const session = createSession({
+                frameBufferMultiplier: multiplier,
+                size: 4000,
+                chunkSize: largeImages ? 32 : 1,
+                width: largeImages ? 3840 : 32,
+                height: largeImages ? 2160 : 24,
+            });
+            try {
+                await session.read(0, false);
+                await settle();
+                // 32 RGBA 4K frames cost 1,061,683,200 bytes per chunk:
+                // 2/6/20 GiB hold 2/6/20 chunks. Tiny images hit the chunk cap instead.
+                const expected = (largeImages ? 2 : 10) * multiplier;
+                assert.deepEqual(Array.from(session.getCachedChunks(1)),
+                    Array.from({ length: expected }, (_, i) => i));
+                const next = await session.read(largeImages ? 32 : 1);
+                assert.equal(next.imageData.preview, false, 'buffer size never changes task quality');
+            } finally {
+                session.clear(1);
+            }
+        }
+    }
+});
+
 test('pause during an in-flight look-ahead continues filling, and a seek redirects the chain', async () => {
     let finishNext;
     const requested = [];
-    const session = createSession({ size: 30, getChunk: async (index) => {
+    const session = createSession({ size: 300, getChunk: async (index) => {
         requested.push(index);
         return index === 1 ? new Promise((resolve) => { finishNext = resolve; }) : new ArrayBuffer(0);
     } });
@@ -262,11 +292,11 @@ test('pause during an in-flight look-ahead continues filling, and a seek redirec
         await session.read(0, false);
         finishNext(new ArrayBuffer(0));
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        await session.read(20, false);
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), Array.from({ length: 100 }, (_, i) => i));
+        await session.read(200, false);
         await settle();
-        assert.deepEqual(Array.from(session.getCachedChunks(1)), [20, 21, 22, 23, 24, 25, 26, 27, 28, 29]);
-        assert.ok(!requested.includes(10), 'do not continue filling from the old position');
+        assert.deepEqual(Array.from(session.getCachedChunks(1)), Array.from({ length: 100 }, (_, i) => i + 200));
+        assert.ok(!requested.includes(100), 'do not continue filling from the old position');
     } finally {
         session.clear(1);
         finishNext?.(new ArrayBuffer(0));

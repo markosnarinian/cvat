@@ -1058,6 +1058,7 @@ export interface PlayerSettingsState {
     frameStep: number;
     frameSpeed: FrameSpeed;
     reducedResolution: boolean;
+    frameBufferMultiplier: number;
     resetZoom: boolean;
     rotateAll: boolean;
     smoothImage: boolean;

@@ -109,8 +109,15 @@ _For alternative deployments (AWS, Kubernetes, external PostgreSQL, backups, upg
 ### Installing this fork's frame-buffering fix on an existing Docker deployment
 
 The fork preserves normal CVAT task image quality by default, including during playback and at high
-zoom. It fills look-ahead even while paused, using the existing approximately 2 GiB decoded-image
-budget (at most 10 chunks). Opening or seeking a 2D image job first fetches the selected full-quality
+zoom. It fills look-ahead even while paused, using an approximately 20 GiB decoded-image
+budget (at most 100 chunks), ten times the previous limits. This is client memory, not server memory;
+large jobs require substantial available RAM and can cause memory pressure or browser termination
+on smaller machines. The budget estimates decoded pixels, not total browser/GPU memory usage.
+**Settings → Player → Look-ahead buffer multiplier** lets each browser choose an integer from 1 to 10
+(default 10). Each step allows 2 GiB and 10 chunks; the optional preview budget scales by 64 MiB per
+step. The setting is saved locally and applies when reopening the job or reloading the page, not to
+an already open job's cache. Lower it on memory-constrained clients; image quality is unaffected.
+Opening or seeking a 2D image job first fetches the selected full-quality
 image, then buffers full-quality chunks without waiting for another navigation event. Existing chunks
 are reused when available. These changes work for **existing tasks**; no re-upload, task conversion,
 database migration, environment variable, or browser setting is required. Normal task quality means
@@ -119,7 +126,7 @@ Source files, annotation coordinates, exports, and existing compressed/original 
 
 **Settings → Player → Allow reduced-resolution playback** is an optional, persisted client setting,
 disabled by default. Enabling it uses separately cached 512px JPEG previews for image playback, with
-an additional 64 MiB decoded-preview budget. This sacrifices resolution and JPEG quality, and is not
+an additional 640 MiB decoded-preview budget (at most 100 chunks). This sacrifices resolution and JPEG quality, and is not
 a perceptually lossless or zoom-adaptive mode. Paused previews refine to normal task quality after
 250 ms without blanking the image; pixel-processing tools always use task quality. Starting playback
 or leaving the frame cancels optional refinement still in flight. The UI falls back to normal chunks

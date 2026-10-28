@@ -25,6 +25,7 @@ interface Props {
     frameStep: number;
     frameSpeed: FrameSpeed;
     reducedResolution: boolean;
+    frameBufferMultiplier: number;
     resetZoom: boolean;
     rotateAll: boolean;
     smoothImage: boolean;
@@ -33,6 +34,7 @@ interface Props {
     onChangeFrameStep(step: number): void;
     onChangeFrameSpeed(speed: FrameSpeed): void;
     onSwitchReducedResolution(enabled: boolean): void;
+    onChangeFrameBufferMultiplier(value: number): void;
     onSwitchResetZoom(enabled: boolean): void;
     onSwitchRotateAll(rotateAll: boolean): void;
     onChangeCanvasBackgroundColor(color: string): void;
@@ -45,6 +47,7 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
         frameStep,
         frameSpeed,
         reducedResolution,
+        frameBufferMultiplier,
         resetZoom,
         rotateAll,
         smoothImage,
@@ -53,6 +56,7 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
         onChangeFrameStep,
         onChangeFrameSpeed,
         onSwitchReducedResolution,
+        onChangeFrameBufferMultiplier,
         onSwitchResetZoom,
         onSwitchRotateAll,
         onSwitchSmoothImage,
@@ -159,11 +163,41 @@ export default function PlayerSettingsComponent(props: Props): JSX.Element {
                 <Text type='secondary'>
                     Off by default: preserve task image quality at every zoom level.
                     Enable for 512px playback previews; paused images return to task quality.
-                    The player buffers ahead even while paused (2 GiB decoded-image target).
                 </Text>
             </Col>
         </Row>
     ), 15]);
+
+    items.push([(
+        <Row key='frame-buffer' className='cvat-player-settings-buffer cvat-player-setting'>
+            <Col span={24}>
+                <Text className='cvat-text-color'>Look-ahead buffer multiplier </Text>
+                <InputNumber
+                    id='cvat-player-buffer-multiplier'
+                    aria-label='Look-ahead buffer multiplier'
+                    min={1}
+                    max={10}
+                    step={1}
+                    precision={0}
+                    value={frameBufferMultiplier}
+                    onChange={(value: number | null): void => {
+                        if (value !== null && Number.isFinite(value)) {
+                            onChangeFrameBufferMultiplier(Math.floor(clamp(value, 1, 10)));
+                        }
+                    }}
+                />
+            </Col>
+            <Col span={24}>
+                <Text type='secondary'>
+                    {`Up to ${2 * frameBufferMultiplier} GiB of decoded images `}
+                    {`and ${10 * frameBufferMultiplier} chunks. `}
+                    Buffers ahead even while paused without reducing image quality.
+                    Uses this computer&apos;s memory; large values can exhaust RAM or close the browser tab.
+                    Reopen the job or reload the page to apply. Saved in this browser.
+                </Text>
+            </Col>
+        </Row>
+    ), 17]);
 
     items.push([(
         <Row key='canvas-background' className='cvat-player-settings-canvas-background cvat-player-setting'>
