@@ -1529,6 +1529,48 @@ export class CanvasViewImpl implements CanvasView, Listener {
         }
     }
 
+    private startClickDrag(press: MouseEvent, release: (event: MouseEvent) => void): () => void {
+        let dragged = false;
+        let pickedUp = false;
+
+        const trackDrag = (event: MouseEvent): void => {
+            if (Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY) > 4) {
+                dragged = true;
+            }
+        };
+
+        const place = (event: MouseEvent): void => {
+            if (event.button !== 0 || event.altKey) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            release(event);
+        };
+
+        const pickUp = (event: MouseEvent): void => {
+            if (pickedUp) {
+                event.stopImmediatePropagation();
+                return;
+            }
+            if (event.button !== 0) return;
+            trackDrag(event);
+            window.removeEventListener('mousemove', trackDrag, true);
+            if (!dragged) {
+                // A click picks up the shape; a held drag keeps its usual mouseup behavior.
+                pickedUp = true;
+                event.stopImmediatePropagation();
+                window.addEventListener('mousedown', place, true);
+            }
+        };
+
+        window.addEventListener('mouseup', pickUp, true);
+        window.addEventListener('mousemove', trackDrag, true);
+        return (): void => {
+            window.removeEventListener('mouseup', pickUp, true);
+            window.removeEventListener('mousemove', trackDrag, true);
+            window.removeEventListener('mousedown', place, true);
+        };
+    }
+
     private draggable(
         state: any,
         shape: SVG.Shape,
@@ -1552,12 +1594,19 @@ export class CanvasViewImpl implements CanvasView, Listener {
             });
 
             let startCenter = null;
-            draggableInstance.on('dragstart', (): void => {
+            let clearClickDrag = (): void => {};
+            draggableInstance.on('dragstart', (e: CustomEvent): void => {
                 onDragStart();
+                aborted = false;
                 this.draggableShape = shape;
                 const { cx, cy } = shape.bbox();
                 startCenter = { x: cx, y: cy };
                 start = Date.now();
+                if (state.shapeType === 'rectangle' && e.detail.event.type === 'mousedown') {
+                    clearClickDrag = this.startClickDrag(e.detail.event, (event) => {
+                        draggableInstance.remember('_draggable').end(event);
+                    });
+                }
             }).on('dragmove', (e: CustomEvent): void => {
                 onDragMove();
                 if (state.shapeType === 'skeleton' && e.target) {
@@ -1585,6 +1634,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     setupSkeletonEdges(shape as SVG.G, skeletonSVGTemplate);
                 }
             }).on('dragend', (): void => {
+                clearClickDrag();
                 if (aborted) {
                     this.resetViewPosition(state.clientID);
                     return;
@@ -1641,6 +1691,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     );
                 }
             }).on('dragabort', (): void => {
+                clearClickDrag();
                 onDragEnd();
                 this.draggableShape = null;
                 aborted = true;
@@ -1722,6 +1773,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
             let aborted = false;
             let start = Date.now();
             let draggedPointIndex: number | null = null; // Track which point is being dragged
+            let clearCornerEvents = (): void => {};
 
             (resizableInstance as any)
                 .resize({
@@ -1731,10 +1783,18 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 .on('resizestart', (e: CustomEvent): void => {
                     onResizeStart();
                     resized = false;
+                    aborted = false;
                     start = Date.now();
                     this.resizableShape = shape;
                     const detail = (e.detail.event.detail as any);
                     draggedPointIndex = detail?.i ?? null;
+                    if (state.shapeType === 'rectangle' && ['lt', 'rt', 'rb', 'lb'].includes(e.detail.event.type)) {
+                        clearCornerEvents = this.startClickDrag(detail.event, (event) => {
+                            const handler = resizableInstance.remember('_resizeHandler');
+                            handler.update(event);
+                            handler.done();
+                        });
+                    }
                 })
                 .on('resizing', (e: CustomEvent): void => {
                     resized = true;
@@ -1797,6 +1857,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     }
                 })
                 .on('resizedone', (): void => {
+                    clearCornerEvents();
                     if (aborted) {
                         this.resetViewPosition(state.clientID);
                         return;
@@ -1852,6 +1913,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                         );
                     }
                 }).on('resizeabort', () => {
+                    clearCornerEvents();
                     onResizeEnd();
                     aborted = true;
                     this.resizableShape = null;
@@ -2589,7 +2651,11 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 this.splitHandler.select(this.controller.selected);
             }
         } else if (reason === UpdateReasons.CANCEL) {
-            if (this.mode === Mode.DRAW) {
+            if (this.mode === Mode.RESIZE && this.resizableShape) {
+                this.resizableShape.fire('resizeabort');
+            } else if (this.mode === Mode.DRAG && this.draggableShape) {
+                this.draggableShape.fire('dragabort');
+            } else if (this.mode === Mode.DRAW) {
                 if (this.masksHandler.enabled) {
                     this.masksHandler.cancel();
                 } else {
@@ -2634,6 +2700,12 @@ export class CanvasViewImpl implements CanvasView, Listener {
         } else if (reason === UpdateReasons.DATA_FAILED) {
             this.onError(model.exception, 'data fetching');
         } else if (reason === UpdateReasons.DESTROY) {
+            if (this.resizableShape) {
+                this.resizableShape.fire('resizeabort');
+            }
+            if (this.draggableShape) {
+                this.draggableShape.fire('dragabort');
+            }
             this.canvas.dispatchEvent(
                 new CustomEvent('canvas.destroy', {
                     bubbles: false,

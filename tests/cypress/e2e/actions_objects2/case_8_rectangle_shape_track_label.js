@@ -120,5 +120,66 @@ context('Actions on rectangle', () => {
             cy.get('#cvat_canvas_shape_5').trigger('mouseover');
             cy.get('#cvat_canvas_shape_5').should('have.class', 'cvat_canvas_shape_activated');
         });
+
+        for (const part of ['corner', 'body']) {
+            it(`Pick up a rectangle ${part} with a click, cancel, then click to place it`, () => {
+                cy.createRectangle(createRectangleShape2Points);
+                cy.get('rect.cvat_canvas_shape').last().as('rectangle');
+                cy.get('@rectangle').trigger('mousemove');
+                cy.get('@rectangle').trigger('mouseover');
+                cy.get('@rectangle').should('have.class', 'cvat_canvas_shape_activated');
+
+                cy.get('@rectangle').then(([rectangle]) => {
+                    const original = rectangle.getBoundingClientRect();
+                    const corner = part === 'corner';
+                    const target = {
+                        clientX: original.left + (corner ? 0 : original.width / 2) - 43,
+                        clientY: original.top + (corner ? 0 : original.height / 2) - 27,
+                    };
+                    const pickup = corner ? '.svg_select_points_lt' : '@rectangle';
+
+                    cy.get(pickup).click();
+                    cy.get('.cvat-canvas-container').trigger('mousemove', { ...target, buttons: 0 });
+                    cy.get('@rectangle').should(([shape]) => {
+                        const preview = shape.getBoundingClientRect();
+                        expect(preview.left).to.be.closeTo(original.left - 43, 2);
+                        expect(preview.top).to.be.closeTo(original.top - 27, 2);
+                        expect(preview.width).to.be.closeTo(original.width + (corner ? 43 : 0), 2);
+                        expect(preview.height).to.be.closeTo(original.height + (corner ? 27 : 0), 2);
+                    });
+                    cy.get('body').type('{esc}');
+                    cy.get('@rectangle').should(([shape]) => {
+                        expect(shape.getBoundingClientRect().left).to.be.closeTo(original.left, 1);
+                        expect(shape.getBoundingClientRect().top).to.be.closeTo(original.top, 1);
+                        expect(shape.getBoundingClientRect().width).to.be.closeTo(original.width, 1);
+                        expect(shape.getBoundingClientRect().height).to.be.closeTo(original.height, 1);
+                    });
+
+                    cy.get('@rectangle').trigger('mousemove');
+                    cy.get('@rectangle').trigger('mouseover');
+                    cy.get(pickup).click();
+                    cy.get('.cvat-canvas-container').trigger('mousemove', { ...target, buttons: 0 });
+                    cy.get('.cvat-canvas-container').trigger('mousedown', { ...target, button: 0 });
+                    cy.get('.cvat-canvas-container').trigger('mouseup', { ...target, button: 0 });
+                    cy.get('.cvat-canvas-container').trigger('mousemove', {
+                        clientX: original.left - 91, clientY: original.top - 68, buttons: 0,
+                    });
+                    cy.get('@rectangle').should(([shape]) => {
+                        const placed = shape.getBoundingClientRect();
+                        expect(placed.left).to.be.closeTo(original.left - 43, 2);
+                        expect(placed.top).to.be.closeTo(original.top - 27, 2);
+                        expect(placed.width).to.be.closeTo(original.width + (corner ? 43 : 0), 2);
+                        expect(placed.height).to.be.closeTo(original.height + (corner ? 27 : 0), 2);
+                    });
+                    cy.get('body').type('{ctrl}z');
+                    cy.get('@rectangle').should(([shape]) => {
+                        expect(shape.getBoundingClientRect().left).to.be.closeTo(original.left, 1);
+                        expect(shape.getBoundingClientRect().top).to.be.closeTo(original.top, 1);
+                        expect(shape.getBoundingClientRect().width).to.be.closeTo(original.width, 1);
+                        expect(shape.getBoundingClientRect().height).to.be.closeTo(original.height, 1);
+                    });
+                });
+            });
+        }
     });
 });
