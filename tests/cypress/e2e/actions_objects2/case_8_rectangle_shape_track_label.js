@@ -172,6 +172,29 @@ context('Actions on rectangle', () => {
                     });
                     cy.get('.cvat_canvas_crosshair').should('have.length', 2);
                     cy.get('.cvat_canvas_cursor_magnifier').should('be.visible');
+                    if (part === 'body') {
+                        cy.get('.cvat_canvas_cursor_magnifier').should(([overlay]) => {
+                            const bounds = overlay.getBoundingClientRect();
+                            const box = rectangle.getBoundingClientRect();
+                            const centerX = box.left + box.width / 2;
+                            const centerY = box.top + box.height / 2;
+                            const context = overlay.getContext('2d');
+                            for (const [x, y, alpha] of [
+                                [centerX, box.top - 24, 255],
+                                [centerX, box.bottom + 24, 255],
+                                [box.left - 24, centerY, 255],
+                                [box.right + 24, centerY, 255],
+                                [centerX, centerY, 0],
+                            ]) {
+                                const pixel = context.getImageData(
+                                    Math.floor(((x - bounds.left) * overlay.width) / bounds.width),
+                                    Math.floor(((y - bounds.top) * overlay.height) / bounds.height),
+                                    1, 1,
+                                ).data;
+                                expect(pixel[3]).to.equal(alpha);
+                            }
+                        });
+                    }
                     cy.get('body').type('{esc}', { scrollBehavior: false });
                     cy.get('.cvat_canvas_crosshair').should('not.exist');
                     cy.get('.cvat_canvas_cursor_magnifier').should('not.be.visible');

@@ -98,6 +98,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private ctrlPressed: boolean;
     private editingCrosshair = new Crosshair();
     private cursorMagnifier: HTMLCanvasElement;
+    private precisionToolsRequest: number | null = null;
     private innerObjectsFlags: {
         drawHidden: Record<number, boolean>;
         editHidden: Record<number, boolean>;
@@ -1993,12 +1994,24 @@ export class CanvasViewImpl implements CanvasView, Listener {
     };
 
     private hidePrecisionTools(): void {
+        if (this.precisionToolsRequest !== null) {
+            window.cancelAnimationFrame(this.precisionToolsRequest);
+            this.precisionToolsRequest = null;
+        }
         this.editingCrosshair.hide();
         if (this.cursorMagnifier) this.cursorMagnifier.hidden = true;
     }
 
     private updatePrecisionTools = (event: MouseEvent): void => {
-        const editingRectangle = [this.draggableShape, this.resizableShape].some((shape) => (
+        if (this.precisionToolsRequest !== null) window.cancelAnimationFrame(this.precisionToolsRequest);
+        this.precisionToolsRequest = window.requestAnimationFrame(() => {
+            this.precisionToolsRequest = null;
+            this.renderPrecisionTools(event);
+        });
+    };
+
+    private renderPrecisionTools(event: MouseEvent): void {
+        const editingRectangle = [this.draggableShape, this.resizableShape].find((shape) => (
             shape && this.drawnStates[+shape.attr('clientID')]?.shapeType === 'rectangle'
         ));
         const drawingRectangle = this.mode === Mode.DRAW && this.controller.drawData.shapeType === 'rectangle';
@@ -2017,46 +2030,98 @@ export class CanvasViewImpl implements CanvasView, Listener {
             this.editingCrosshair.hide();
         }
 
-        this.cursorMagnifier.hidden = !this.configuration.cursorMagnifier;
-        if (!this.configuration.cursorMagnifier) return;
+        const rectangle = editingRectangle?.node || this.content.querySelector('.cvat_canvas_shape_drawing');
+        const box = rectangle?.getBoundingClientRect();
+        this.cursorMagnifier.hidden = !this.configuration.cursorMagnifier || !box?.width || !box?.height;
+        if (this.cursorMagnifier.hidden) return;
 
-        const size = 160;
-        const gap = 24;
-        const localX = event.clientX - bounds.left;
-        const localY = event.clientY - bounds.top;
-        const left = localX + gap + size <= bounds.width ? localX + gap : localX - gap - size;
-        const top = localY + gap + size <= bounds.height ? localY + gap : localY - gap - size;
-        this.cursorMagnifier.style.left = `${Math.max(0, left)}px`;
-        this.cursorMagnifier.style.top = `${Math.max(0, top)}px`;
+        const width = Math.ceil(bounds.width);
+        const height = Math.ceil(bounds.height);
+        if (this.cursorMagnifier.width !== width * 2) this.cursorMagnifier.width = width * 2;
+        if (this.cursorMagnifier.height !== height * 2) this.cursorMagnifier.height = height * 2;
 
         const ctx = this.cursorMagnifier.getContext('2d');
         const matrix = this.content.getScreenCTM();
-        const zoom = 4;
+        const thickness = 32;
+        const gap = 8;
         ctx.setTransform(2, 0, 0, 2, 0, 0);
-        ctx.fillStyle = '#20242b';
-        ctx.fillRect(0, 0, size, size);
-        ctx.save();
-        ctx.translate(size / 2, size / 2);
-        ctx.scale(zoom, zoom);
-        ctx.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e - event.clientX, matrix.f - event.clientY);
-        ctx.imageSmoothingEnabled = false;
-        ctx.filter = this.configuration.CSSImageFilter || 'none';
-        ctx.drawImage(this.background, this.geometry.offset, this.geometry.offset,
-            this.geometry.image.width, this.geometry.image.height);
-        ctx.restore();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2);
-        ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size);
-        ctx.stroke();
-        ctx.strokeStyle = '#111';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillStyle = 'white';
-        ctx.font = '12px sans-serif';
-        ctx.fillText('4×', 8, 16);
-    };
+        ctx.clearRect(0, 0, width, height);
+        ctx.translate(-bounds.left, -bounds.top);
+
+        for (const strip of [
+            {
+                x: box.left,
+                y: box.top - gap - thickness,
+                width: box.width,
+                height: thickness,
+                scaleX: 1,
+                scaleY: 4,
+                anchorX: box.left + box.width / 2,
+                anchorY: box.top,
+            },
+            {
+                x: box.left,
+                y: box.bottom + gap,
+                width: box.width,
+                height: thickness,
+                scaleX: 1,
+                scaleY: 4,
+                anchorX: box.left + box.width / 2,
+                anchorY: box.bottom,
+            },
+            {
+                x: box.left - gap - thickness,
+                y: box.top,
+                width: thickness,
+                height: box.height,
+                scaleX: 4,
+                scaleY: 1,
+                anchorX: box.left,
+                anchorY: box.top + box.height / 2,
+            },
+            {
+                x: box.right + gap,
+                y: box.top,
+                width: thickness,
+                height: box.height,
+                scaleX: 4,
+                scaleY: 1,
+                anchorX: box.right,
+                anchorY: box.top + box.height / 2,
+            },
+        ]) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(strip.x, strip.y, strip.width, strip.height);
+            ctx.clip();
+            ctx.fillStyle = '#20242b';
+            ctx.fillRect(strip.x, strip.y, strip.width, strip.height);
+            ctx.translate(strip.x + strip.width / 2, strip.y + strip.height / 2);
+            ctx.scale(strip.scaleX, strip.scaleY);
+            ctx.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e - strip.anchorX, matrix.f - strip.anchorY);
+            ctx.imageSmoothingEnabled = false;
+            ctx.filter = this.configuration.CSSImageFilter || 'none';
+            ctx.drawImage(this.background, this.geometry.offset, this.geometry.offset,
+                this.geometry.image.width, this.geometry.image.height);
+            ctx.restore();
+
+            ctx.beginPath();
+            if (strip.scaleY === 4) {
+                ctx.moveTo(strip.x, strip.y + strip.height / 2);
+                ctx.lineTo(strip.x + strip.width, strip.y + strip.height / 2);
+            } else {
+                ctx.moveTo(strip.x + strip.width / 2, strip.y);
+                ctx.lineTo(strip.x + strip.width / 2, strip.y + strip.height);
+            }
+            ctx.strokeStyle = '#111';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.strokeRect(strip.x, strip.y, strip.width, strip.height);
+        }
+    }
 
     private onMouseUp = (event: MouseEvent): void => {
         if (event.button === 0 || event.button === 1) {
@@ -2099,8 +2164,6 @@ export class CanvasViewImpl implements CanvasView, Listener {
         this.background = window.document.createElement('canvas');
         this.cursorMagnifier = window.document.createElement('canvas');
         this.cursorMagnifier.className = 'cvat_canvas_cursor_magnifier';
-        this.cursorMagnifier.width = 320;
-        this.cursorMagnifier.height = 320;
         this.cursorMagnifier.hidden = true;
         this.masksContent = window.document.createElement('canvas');
         this.bitmapUpdateReqId = 0;
