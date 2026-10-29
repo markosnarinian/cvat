@@ -73,6 +73,7 @@ polyline.cvat_shape_drawing_opacity {
 
 .cvat_canvas_crosshair {
     stroke: red;
+    pointer-events: none;
 }
 
 .cvat_canvas_shape_selection {
@@ -478,4 +479,15 @@ g.cvat_canvas_shape_occluded {
 
 .cvat-canvas-notification-list-shortcuts {
     color: yellow;
+}
+
+.cvat_canvas_cursor_magnifier {
+    position: absolute;
+    width: 160px;
+    height: 160px;
+    z-index: 10;
+    pointer-events: none;
+    border: 2px solid white;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px #0009;
 }

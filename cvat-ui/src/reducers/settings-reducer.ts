@@ -35,6 +35,8 @@ const defaultState: SettingsState = {
         automaticBordering: false,
         snapToPoint: false,
         adaptiveZoom: true,
+        editingCrosshair: true,
+        cursorMagnifier: true,
         showObjectsTextAlways: false,
         showAllInterpolationTracks: false,
         intelligentPolygonCrop: true,
@@ -381,6 +383,15 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
                 workspace: {
                     ...state.workspace,
                     adaptiveZoom: action.payload.adaptiveZoom,
+                },
+            };
+        }
+        case SettingsActionTypes.SWITCH_RECTANGLE_PRECISION: {
+            return {
+                ...state,
+                workspace: {
+                    ...state.workspace,
+                    [action.payload.tool]: action.payload.enabled,
                 },
             };
         }

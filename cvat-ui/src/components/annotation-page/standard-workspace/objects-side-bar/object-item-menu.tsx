@@ -98,18 +98,19 @@ function MakeCopyItem(props: ItemProps): JSX.Element {
     );
 }
 
-function EditMaskItem(props: ItemProps): JSX.Element {
+function EditItem(props: ItemProps): JSX.Element {
     const { toolProps } = props;
-    const { edit } = toolProps;
+    const { edit, shapeType, closeMenu } = toolProps;
+    const replaceBox = shapeType === ShapeType.RECTANGLE;
     return (
-        <CVATTooltip title='Shift + Double click'>
+        <CVATTooltip title={replaceBox ? 'Draw a new box for this object (Shift + N)' : 'Shift + Double click'}>
             <Button
                 type='link'
                 icon={<EditOutlined />}
-                onClick={edit}
+                onClick={() => { closeMenu(); edit(); }}
                 className='cvat-object-item-menu-edit-object'
             >
-                Edit
+                {replaceBox ? 'Replace box' : 'Edit'}
             </Button>
         </CVATTooltip>
     );
@@ -369,10 +370,10 @@ export default function ItemMenu(props: Props): MenuProps {
         });
     }
 
-    if (!locked && shapeType === ShapeType.MASK) {
+    if (!locked && (shapeType === ShapeType.MASK || (is2D && shapeType === ShapeType.RECTANGLE))) {
         items.push({
             key: MenuKeys.EDIT_MASK,
-            label: <EditMaskItem toolProps={props} />,
+            label: <EditItem toolProps={props} />,
         });
     }
 

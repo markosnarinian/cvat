@@ -27,6 +27,7 @@ import { ZoomHandler, ZoomHandlerImpl } from './zoomHandler';
 import { InteractionHandler, InteractionHandlerImpl } from './interactionHandler';
 import { AutoborderHandler, AutoborderHandlerImpl } from './autoborderHandler';
 import consts from './consts';
+import Crosshair from './crosshair';
 import {
     translateToSVG, translateFromSVG, translateToCanvas, translateFromCanvas,
     pointsToNumberArray, parsePoints, displayShapeSize, scalarProduct,
@@ -95,6 +96,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private resizableShape: SVG.Shape | null;
     private skeletonResizerRefreshRequest: number | null;
     private ctrlPressed: boolean;
+    private editingCrosshair = new Crosshair();
+    private cursorMagnifier: HTMLCanvasElement;
     private innerObjectsFlags: {
         drawHidden: Record<number, boolean>;
         editHidden: Record<number, boolean>;
@@ -103,6 +106,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
     private set mode(value: Mode) {
         this.controller.mode = value;
+        this.hidePrecisionTools();
     }
 
     private get mode(): Mode {
@@ -1788,7 +1792,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     this.resizableShape = shape;
                     const detail = (e.detail.event.detail as any);
                     draggedPointIndex = detail?.i ?? null;
-                    if (state.shapeType === 'rectangle' && ['lt', 'rt', 'rb', 'lb'].includes(e.detail.event.type)) {
+                    if (state.shapeType === 'rectangle' && ['lt', 'rt', 'rb', 'lb', 't', 'r', 'b', 'l'].includes(e.detail.event.type)) {
                         clearCornerEvents = this.startClickDrag(detail.event, (event) => {
                             const handler = resizableInstance.remember('_resizeHandler');
                             handler.update(event);
@@ -1988,6 +1992,72 @@ export class CanvasViewImpl implements CanvasView, Listener {
         }
     };
 
+    private hidePrecisionTools(): void {
+        this.editingCrosshair.hide();
+        if (this.cursorMagnifier) this.cursorMagnifier.hidden = true;
+    }
+
+    private updatePrecisionTools = (event: MouseEvent): void => {
+        const editingRectangle = [this.draggableShape, this.resizableShape].some((shape) => (
+            shape && this.drawnStates[+shape.attr('clientID')]?.shapeType === 'rectangle'
+        ));
+        const drawingRectangle = this.mode === Mode.DRAW && this.controller.drawData.shapeType === 'rectangle';
+        const bounds = this.canvas.getBoundingClientRect();
+        if ((!editingRectangle && !drawingRectangle) || this.isImageLoading ||
+            event.clientX < bounds.left || event.clientX > bounds.right ||
+            event.clientY < bounds.top || event.clientY > bounds.bottom) {
+            this.hidePrecisionTools();
+            return;
+        }
+
+        const [x, y] = translateToSVG(this.content, [event.clientX, event.clientY]);
+        if (editingRectangle && this.configuration.editingCrosshair) {
+            this.editingCrosshair.show(this.adoptedContent, x, y, this.geometry.scale);
+        } else {
+            this.editingCrosshair.hide();
+        }
+
+        this.cursorMagnifier.hidden = !this.configuration.cursorMagnifier;
+        if (!this.configuration.cursorMagnifier) return;
+
+        const size = 160;
+        const gap = 24;
+        const localX = event.clientX - bounds.left;
+        const localY = event.clientY - bounds.top;
+        const left = localX + gap + size <= bounds.width ? localX + gap : localX - gap - size;
+        const top = localY + gap + size <= bounds.height ? localY + gap : localY - gap - size;
+        this.cursorMagnifier.style.left = `${Math.max(0, left)}px`;
+        this.cursorMagnifier.style.top = `${Math.max(0, top)}px`;
+
+        const ctx = this.cursorMagnifier.getContext('2d');
+        const matrix = this.content.getScreenCTM();
+        const zoom = 4;
+        ctx.setTransform(2, 0, 0, 2, 0, 0);
+        ctx.fillStyle = '#20242b';
+        ctx.fillRect(0, 0, size, size);
+        ctx.save();
+        ctx.translate(size / 2, size / 2);
+        ctx.scale(zoom, zoom);
+        ctx.transform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e - event.clientX, matrix.f - event.clientY);
+        ctx.imageSmoothingEnabled = false;
+        ctx.filter = this.configuration.CSSImageFilter || 'none';
+        ctx.drawImage(this.background, this.geometry.offset, this.geometry.offset,
+            this.geometry.image.width, this.geometry.image.height);
+        ctx.restore();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2);
+        ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size);
+        ctx.stroke();
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = 'white';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('4×', 8, 16);
+    };
+
     private onMouseUp = (event: MouseEvent): void => {
         if (event.button === 0 || event.button === 1) {
             this.controller.disableDrag();
@@ -2027,6 +2097,11 @@ export class CanvasViewImpl implements CanvasView, Listener {
         this.text = window.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         this.adoptedText = SVG.adopt((this.text as any) as HTMLElement) as SVG.Container;
         this.background = window.document.createElement('canvas');
+        this.cursorMagnifier = window.document.createElement('canvas');
+        this.cursorMagnifier.className = 'cvat_canvas_cursor_magnifier';
+        this.cursorMagnifier.width = 320;
+        this.cursorMagnifier.height = 320;
+        this.cursorMagnifier.hidden = true;
         this.masksContent = window.document.createElement('canvas');
         this.bitmapUpdateReqId = 0;
         this.bitmap = window.document.createElement('canvas');
@@ -2110,6 +2185,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
 
         this.canvas.appendChild(this.text);
         this.canvas.appendChild(this.background);
+        this.canvas.appendChild(this.cursorMagnifier);
         this.canvas.appendChild(this.masksContent);
         this.canvas.appendChild(this.bitmap);
         this.canvas.appendChild(this.grid);
@@ -2262,6 +2338,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
         });
 
         this.content.oncontextmenu = (): boolean => false;
+        window.addEventListener('mousemove', this.updatePrecisionTools);
         model.subscribe(this);
     }
 
@@ -2716,6 +2793,8 @@ export class CanvasViewImpl implements CanvasView, Listener {
             window.document.removeEventListener('keydown', this.onKeyDown);
             window.document.removeEventListener('keyup', this.onKeyUp);
             window.document.removeEventListener('mouseup', this.onMouseUp);
+            window.removeEventListener('mousemove', this.updatePrecisionTools);
+            this.hidePrecisionTools();
             this.interactionHandler.destroy();
         }
 

@@ -23,6 +23,8 @@ interface Props {
     showAllInterpolationTracks: boolean;
     showObjectsTextAlways: boolean;
     adaptiveZoom: boolean;
+    editingCrosshair: boolean;
+    cursorMagnifier: boolean;
     intelligentPolygonCrop: boolean;
     defaultApproxPolyAccuracy: number;
     textFontSize: number;
@@ -37,6 +39,7 @@ interface Props {
     onSwitchShowingInterpolatedTracks(enabled: boolean): void;
     onSwitchShowingObjectsTextAlways(enabled: boolean): void;
     onSwitchAdaptiveZoom(enabled: boolean): void;
+    onSwitchRectanglePrecision(tool: 'editingCrosshair' | 'cursorMagnifier', enabled: boolean): void;
     onSwitchIntelligentPolygonCrop(enabled: boolean): void;
     onChangeTextFontSize(fontSize: number): void;
     onChangeControlPointsSize(pointsSize: number): void;
@@ -53,6 +56,8 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
         showAllInterpolationTracks,
         showObjectsTextAlways,
         adaptiveZoom,
+        editingCrosshair,
+        cursorMagnifier,
         intelligentPolygonCrop,
         defaultApproxPolyAccuracy,
         textFontSize,
@@ -66,6 +71,7 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
         onSwitchShowingInterpolatedTracks,
         onSwitchShowingObjectsTextAlways,
         onSwitchAdaptiveZoom,
+        onSwitchRectanglePrecision,
         onSwitchIntelligentPolygonCrop,
         onChangeDefaultApproxPolyAccuracy,
         onChangeTextFontSize,
@@ -84,6 +90,30 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
 
     return (
         <div className='cvat-workspace-settings'>
+            <Row className='cvat-player-setting'>
+                <Col span={24}>
+                    <Checkbox
+                        className='cvat-workspace-settings-editing-crosshair'
+                        checked={editingCrosshair}
+                        onChange={(event: CheckboxChangeEvent): void => {
+                            onSwitchRectanglePrecision('editingCrosshair', event.target.checked);
+                        }}
+                    >
+                        Crosshairs while editing bounding boxes
+                    </Checkbox>
+                </Col>
+                <Col span={24}>
+                    <Checkbox
+                        className='cvat-workspace-settings-cursor-magnifier'
+                        checked={cursorMagnifier}
+                        onChange={(event: CheckboxChangeEvent): void => {
+                            onSwitchRectanglePrecision('cursorMagnifier', event.target.checked);
+                        }}
+                    >
+                        Cursor magnifier while drawing and editing bounding boxes
+                    </Checkbox>
+                </Col>
+            </Row>
             <Row className='cvat-player-setting'>
                 <Col span={24}>
                     <Checkbox

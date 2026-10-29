@@ -1804,16 +1804,17 @@ export function repeatDrawShapeAsync(): ThunkAction {
     };
 }
 
-export function redrawShapeAsync(): ThunkAction {
+export function redrawShapeAsync(clientID?: number): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
         const {
             annotations: { activatedStateID, states },
             canvas: { instance: canvasInstance },
         } = getStore().getState().annotation;
 
-        if (activatedStateID !== null) {
-            const [state] = states.filter((_state: any): boolean => _state.clientID === activatedStateID);
-            if (state && state.objectType !== ObjectType.TAG) {
+        const targetID = clientID ?? activatedStateID;
+        if (targetID !== null) {
+            const [state] = states.filter((_state: any): boolean => _state.clientID === targetID);
+            if (state && !state.lock && state.objectType !== ObjectType.TAG) {
                 const activeControl = ShapeTypeToControl[state.shapeType as ShapeType] || ActiveControl.CURSOR;
                 if (canvasInstance instanceof Canvas) {
                     canvasInstance.cancel();
@@ -1829,7 +1830,7 @@ export function redrawShapeAsync(): ThunkAction {
                 canvasInstance.draw({
                     skeletonSVG: state.shapeType === ShapeType.SKELETON ? state.label.structure.svg : undefined,
                     enabled: true,
-                    redraw: activatedStateID,
+                    redraw: targetID,
                     shapeType: state.shapeType,
                     crosshair: [ShapeType.RECTANGLE, ShapeType.CUBOID, ShapeType.ELLIPSE].includes(state.shapeType),
                 });

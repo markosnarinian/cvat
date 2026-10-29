@@ -19,6 +19,7 @@ import {
     switchTextContent,
     switchShowingTagsOnFrame,
     switchAdaptiveZoom,
+    switchRectanglePrecision,
 } from 'actions/settings-actions';
 
 import { CombinedState } from 'reducers';
@@ -33,6 +34,8 @@ interface StateToProps {
     showObjectsTextAlways: boolean;
     defaultApproxPolyAccuracy: number;
     adaptiveZoom: boolean;
+    editingCrosshair: boolean;
+    cursorMagnifier: boolean;
     intelligentPolygonCrop: boolean;
     textFontSize: number;
     controlPointsSize: number;
@@ -48,6 +51,7 @@ interface DispatchToProps {
     onSwitchShowingInterpolatedTracks(enabled: boolean): void;
     onSwitchShowingObjectsTextAlways(enabled: boolean): void;
     onSwitchAdaptiveZoom(enabled: boolean): void;
+    onSwitchRectanglePrecision(tool: 'editingCrosshair' | 'cursorMagnifier', enabled: boolean): void;
     onSwitchIntelligentPolygonCrop(enabled: boolean): void;
     onChangeDefaultApproxPolyAccuracy(approxPolyAccuracy: number): void;
     onChangeTextFontSize(fontSize: number): void;
@@ -66,6 +70,8 @@ function mapStateToProps(state: CombinedState): StateToProps {
         showAllInterpolationTracks,
         showObjectsTextAlways,
         adaptiveZoom,
+        editingCrosshair,
+        cursorMagnifier,
         intelligentPolygonCrop,
         defaultApproxPolyAccuracy,
         textFontSize,
@@ -82,6 +88,8 @@ function mapStateToProps(state: CombinedState): StateToProps {
         showAllInterpolationTracks,
         showObjectsTextAlways,
         adaptiveZoom,
+        editingCrosshair,
+        cursorMagnifier,
         intelligentPolygonCrop,
         defaultApproxPolyAccuracy,
         textFontSize,
@@ -99,6 +107,7 @@ const mapDispatchToProps: DispatchToProps = {
     onSwitchShowingInterpolatedTracks: switchShowingInterpolatedTracks,
     onSwitchShowingObjectsTextAlways: switchShowingObjectsTextAlways,
     onSwitchAdaptiveZoom: switchAdaptiveZoom,
+    onSwitchRectanglePrecision: switchRectanglePrecision,
     onSwitchIntelligentPolygonCrop: switchIntelligentPolygonCrop,
     onChangeDefaultApproxPolyAccuracy: changeDefaultApproxPolyAccuracy,
     onChangeTextFontSize: switchTextFontSize,

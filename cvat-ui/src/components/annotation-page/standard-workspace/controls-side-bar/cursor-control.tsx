@@ -8,7 +8,7 @@ import Icon from '@ant-design/icons';
 
 import { CursorIcon } from 'icons';
 import { ActiveControl, CombinedState } from 'reducers';
-import { Canvas } from 'cvat-canvas-wrapper';
+import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import GlobalHotKeys from 'utils/mousetrap-react';
@@ -42,7 +42,8 @@ function CursorControl(props: Props): JSX.Element {
     const { keyMap } = useSelector((state: CombinedState) => state.shortcuts);
 
     const handler = (): void => {
-        if (activeControl !== ActiveControl.CURSOR) {
+        if (activeControl !== ActiveControl.CURSOR || (canvasInstance instanceof Canvas &&
+            [CanvasMode.DRAG, CanvasMode.RESIZE].includes(canvasInstance.mode()))) {
             canvasInstance.cancel();
         }
     };

@@ -121,33 +121,60 @@ context('Actions on rectangle', () => {
             cy.get('#cvat_canvas_shape_5').should('have.class', 'cvat_canvas_shape_activated');
         });
 
-        for (const part of ['corner', 'body']) {
+        for (const {
+            part, pickup, anchor, delta,
+        } of [
+                {
+                    part: 'corner', pickup: '.svg_select_points_lt', anchor: [0, 0], delta: [43, 27, -43, -27],
+                },
+                {
+                    part: 'body', pickup: '@rectangle', anchor: [0.5, 0.5], delta: [43, 27, 0, 0],
+                },
+                {
+                    part: 'left edge', pickup: '.svg_select_points_l', anchor: [0, 0.5], delta: [43, 0, -43, 0],
+                },
+                {
+                    part: 'right edge', pickup: '.svg_select_points_r', anchor: [1, 0.5], delta: [0, 0, 43, 0],
+                },
+                {
+                    part: 'top edge', pickup: '.svg_select_points_t', anchor: [0.5, 0], delta: [0, 27, 0, -27],
+                },
+                {
+                    part: 'bottom edge', pickup: '.svg_select_points_b', anchor: [0.5, 1], delta: [0, 0, 0, 27],
+                },
+            ]) {
             it(`Pick up a rectangle ${part} with a click, cancel, then click to place it`, () => {
-                cy.createRectangle(createRectangleShape2Points);
-                cy.get('rect.cvat_canvas_shape').last().as('rectangle');
-                cy.get('@rectangle').trigger('mousemove');
-                cy.get('@rectangle').trigger('mouseover');
+                cy.get('body').type('{esc}', { scrollBehavior: false });
+                cy.get('#cvat_canvas_wrapper').scrollTo(0, 0, { ensureScrollable: false });
+                cy.get('.cvat-fit-control').click({ scrollBehavior: false });
+                cy.get('#cvat_canvas_shape_5').as('rectangle');
+                cy.get('@rectangle').trigger('mousemove', { scrollBehavior: false });
+                cy.get('@rectangle').trigger('mouseover', { scrollBehavior: false });
                 cy.get('@rectangle').should('have.class', 'cvat_canvas_shape_activated');
 
                 cy.get('@rectangle').then(([rectangle]) => {
                     const original = rectangle.getBoundingClientRect();
-                    const corner = part === 'corner';
                     const target = {
-                        clientX: original.left + (corner ? 0 : original.width / 2) - 43,
-                        clientY: original.top + (corner ? 0 : original.height / 2) - 27,
+                        clientX: original.left + anchor[0] * original.width + 43,
+                        clientY: original.top + anchor[1] * original.height + 27,
                     };
-                    const pickup = corner ? '.svg_select_points_lt' : '@rectangle';
 
-                    cy.get(pickup).click();
-                    cy.get('.cvat-canvas-container').trigger('mousemove', { ...target, buttons: 0 });
+                    cy.get(pickup).click({ scrollBehavior: false });
+                    cy.get('.cvat-canvas-container').trigger('mousemove', {
+                        ...target, buttons: 0, scrollBehavior: false,
+                    });
                     cy.get('@rectangle').should(([shape]) => {
                         const preview = shape.getBoundingClientRect();
-                        expect(preview.left).to.be.closeTo(original.left - 43, 2);
-                        expect(preview.top).to.be.closeTo(original.top - 27, 2);
-                        expect(preview.width).to.be.closeTo(original.width + (corner ? 43 : 0), 2);
-                        expect(preview.height).to.be.closeTo(original.height + (corner ? 27 : 0), 2);
+                        expect(preview.left).to.be.closeTo(original.left + delta[0], 2);
+                        expect(preview.top).to.be.closeTo(original.top + delta[1], 2);
+                        expect(preview.width).to.be.closeTo(original.width + delta[2], 2);
+                        expect(preview.height).to.be.closeTo(original.height + delta[3], 2);
                     });
-                    cy.get('body').type('{esc}');
+                    cy.get('.cvat_canvas_crosshair').should('have.length', 2);
+                    cy.get('.cvat_canvas_cursor_magnifier').should('be.visible');
+                    cy.get('body').type('{esc}', { scrollBehavior: false });
+                    cy.get('.cvat_canvas_crosshair').should('not.exist');
+                    cy.get('.cvat_canvas_cursor_magnifier').should('not.be.visible');
                     cy.get('@rectangle').should(([shape]) => {
                         expect(shape.getBoundingClientRect().left).to.be.closeTo(original.left, 1);
                         expect(shape.getBoundingClientRect().top).to.be.closeTo(original.top, 1);
@@ -155,23 +182,29 @@ context('Actions on rectangle', () => {
                         expect(shape.getBoundingClientRect().height).to.be.closeTo(original.height, 1);
                     });
 
-                    cy.get('@rectangle').trigger('mousemove');
-                    cy.get('@rectangle').trigger('mouseover');
-                    cy.get(pickup).click();
-                    cy.get('.cvat-canvas-container').trigger('mousemove', { ...target, buttons: 0 });
-                    cy.get('.cvat-canvas-container').trigger('mousedown', { ...target, button: 0 });
-                    cy.get('.cvat-canvas-container').trigger('mouseup', { ...target, button: 0 });
+                    cy.get('@rectangle').trigger('mousemove', { scrollBehavior: false });
+                    cy.get('@rectangle').trigger('mouseover', { scrollBehavior: false });
+                    cy.get(pickup).click({ scrollBehavior: false });
                     cy.get('.cvat-canvas-container').trigger('mousemove', {
-                        clientX: original.left - 91, clientY: original.top - 68, buttons: 0,
+                        ...target, buttons: 0, scrollBehavior: false,
+                    });
+                    cy.get('.cvat-canvas-container').trigger('mousedown', {
+                        ...target, button: 0, scrollBehavior: false,
+                    });
+                    cy.get('.cvat-canvas-container').trigger('mouseup', {
+                        ...target, button: 0, scrollBehavior: false,
+                    });
+                    cy.get('.cvat-canvas-container').trigger('mousemove', {
+                        clientX: original.left - 91, clientY: original.top - 68, buttons: 0, scrollBehavior: false,
                     });
                     cy.get('@rectangle').should(([shape]) => {
                         const placed = shape.getBoundingClientRect();
-                        expect(placed.left).to.be.closeTo(original.left - 43, 2);
-                        expect(placed.top).to.be.closeTo(original.top - 27, 2);
-                        expect(placed.width).to.be.closeTo(original.width + (corner ? 43 : 0), 2);
-                        expect(placed.height).to.be.closeTo(original.height + (corner ? 27 : 0), 2);
+                        expect(placed.left).to.be.closeTo(original.left + delta[0], 2);
+                        expect(placed.top).to.be.closeTo(original.top + delta[1], 2);
+                        expect(placed.width).to.be.closeTo(original.width + delta[2], 2);
+                        expect(placed.height).to.be.closeTo(original.height + delta[3], 2);
                     });
-                    cy.get('body').type('{ctrl}z');
+                    cy.get('body').type('{ctrl}z', { scrollBehavior: false });
                     cy.get('@rectangle').should(([shape]) => {
                         expect(shape.getBoundingClientRect().left).to.be.closeTo(original.left, 1);
                         expect(shape.getBoundingClientRect().top).to.be.closeTo(original.top, 1);

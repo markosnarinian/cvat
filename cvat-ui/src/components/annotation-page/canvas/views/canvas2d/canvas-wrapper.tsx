@@ -123,6 +123,8 @@ interface StateToProps {
     automaticBordering: boolean;
     snapToPoint: boolean;
     adaptiveZoom: boolean;
+    editingCrosshair: boolean;
+    cursorMagnifier: boolean;
     intelligentPolygonCrop: boolean;
     switchableAutomaticBordering: boolean;
     keyMap: KeyMap;
@@ -213,6 +215,8 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 automaticBordering,
                 snapToPoint,
                 adaptiveZoom,
+                editingCrosshair,
+                cursorMagnifier,
                 intelligentPolygonCrop,
                 textFontSize,
                 controlPointsSize,
@@ -274,6 +278,8 @@ function mapStateToProps(state: CombinedState): StateToProps {
         automaticBordering,
         snapToPoint,
         adaptiveZoom,
+        editingCrosshair,
+        cursorMagnifier,
         intelligentPolygonCrop,
         workspace,
         keyMap,
@@ -430,6 +436,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             automaticBordering,
             snapToPoint,
             adaptiveZoom,
+            editingCrosshair,
+            cursorMagnifier,
             intelligentPolygonCrop,
             showObjectsTextAlways,
             showProjections,
@@ -460,6 +468,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             autoborders: automaticBordering,
             snapToPoint,
             adaptiveZoom,
+            editingCrosshair,
+            cursorMagnifier,
             showProjections,
             showConflicts: showGroundTruth,
             intelligentPolygonCrop,
@@ -510,6 +520,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             automaticBordering,
             snapToPoint,
             adaptiveZoom,
+            editingCrosshair,
+            cursorMagnifier,
             intelligentPolygonCrop,
             showProjections,
             colorBy,
@@ -534,6 +546,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             prevProps.automaticBordering !== automaticBordering ||
             prevProps.snapToPoint !== snapToPoint ||
             prevProps.adaptiveZoom !== adaptiveZoom ||
+            prevProps.editingCrosshair !== editingCrosshair ||
+            prevProps.cursorMagnifier !== cursorMagnifier ||
             prevProps.showProjections !== showProjections ||
             prevProps.intelligentPolygonCrop !== intelligentPolygonCrop ||
             prevProps.opacity !== opacity ||
@@ -556,6 +570,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 autoborders: automaticBordering,
                 snapToPoint,
                 adaptiveZoom,
+                editingCrosshair,
+                cursorMagnifier,
                 showProjections,
                 intelligentPolygonCrop,
                 selectedShapeOpacity: selectedOpacity,

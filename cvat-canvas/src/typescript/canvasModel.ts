@@ -84,6 +84,8 @@ export interface Configuration {
     autoborders?: boolean;
     snapToPoint?: boolean;
     adaptiveZoom?: boolean;
+    editingCrosshair?: boolean;
+    cursorMagnifier?: boolean;
     displayAllText?: boolean;
     textFontSize?: number;
     textPosition?: 'auto' | 'center';
@@ -438,6 +440,8 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
                 undefinedAttrValue: consts.DEFAULT_UNDEFINED_ATTR_VALUE,
                 hideEditedObject: false,
                 focusedObjectPadding: 50,
+                editingCrosshair: true,
+                cursorMagnifier: true,
             },
             imageBitmap: false,
             image: null,
@@ -1002,6 +1006,12 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         }
         if (typeof configuration.adaptiveZoom === 'boolean') {
             this.data.configuration.adaptiveZoom = configuration.adaptiveZoom;
+        }
+        if (typeof configuration.editingCrosshair === 'boolean') {
+            this.data.configuration.editingCrosshair = configuration.editingCrosshair;
+        }
+        if (typeof configuration.cursorMagnifier === 'boolean') {
+            this.data.configuration.cursorMagnifier = configuration.cursorMagnifier;
         }
         if (typeof configuration.smoothImage === 'boolean') {
             this.data.configuration.smoothImage = configuration.smoothImage;

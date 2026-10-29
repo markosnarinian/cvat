@@ -18,6 +18,7 @@ import {
     switchSimplifyVisibility as switchSimplifyVisibilityAction,
     removeObject as removeObjectAction,
     collapseObjectItems,
+    redrawShapeAsync,
 } from 'actions/annotation-actions';
 import {
     ActiveControl, CombinedState, ColorBy,
@@ -79,6 +80,7 @@ interface DispatchToProps {
     changeGroupColor(group: number, color: string): void;
     updateActiveControl(activeControl: ActiveControl): void;
     expandObject(objectState: ObjectState): void;
+    redrawShape(clientID: number): void;
 }
 
 function mapStateToProps(state: CombinedState, own: OwnProps): StateToProps {
@@ -159,6 +161,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         expandObject(objectState: ObjectState): void {
             dispatch(collapseObjectItems([objectState], false));
+        },
+        redrawShape(clientID: number): void {
+            dispatch(redrawShapeAsync(clientID));
         },
     };
 }
@@ -251,8 +256,13 @@ class ObjectItemContainer extends React.PureComponent<Props, State> {
 
     private edit = (): void => {
         const {
-            objectState, canvasInstance, updateActiveControl,
+            objectState, canvasInstance, updateActiveControl, redrawShape,
         } = this.props;
+
+        if (canvasInstance instanceof Canvas && objectState.shapeType === ShapeType.RECTANGLE) {
+            redrawShape(objectState.clientID);
+            return;
+        }
 
         if (canvasInstance instanceof Canvas &&
             [ShapeType.POLYGON, ShapeType.MASK].includes(objectState.shapeType)
