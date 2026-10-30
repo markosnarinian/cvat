@@ -1,3 +1,133 @@
+# Fork documentation
+
+This is [markosnarinian/cvat](https://github.com/markosnarinian/cvat), a fork of
+[CVAT Community](https://github.com/cvat-ai/cvat). The changes below extend the upstream annotation
+workflow, primarily for **2D rectangular shapes and tracks**, and improve frame loading and playback.
+The upstream product overview and general documentation follow this section; features described there
+are not necessarily fork-specific. This checkout reports CVAT **2.74.1**.
+
+**Contents**
+
+- [Rectangle-track editing](#rectangle-track-editing)
+- [Track timeline and navigation](#track-timeline-and-navigation)
+- [Precision bounding-box controls](#precision-bounding-box-controls)
+- [Frame loading, buffering, and playback](#frame-loading-buffering-and-playback)
+- [Development setup and regression coverage](#development-setup-and-regression-coverage)
+
+## Rectangle-track editing
+
+In the **Standard workspace**, select an unlocked, non-ground-truth rectangle track and open the new
+**Track** tab in the objects sidebar.
+
+- **Batch translation and resizing:** Move all visible stored keyframes by an X/Y offset in pixels,
+  and add or subtract width and height in pixels or percent. Resizing is centered on each box;
+  for example, width `10` in percent makes each box 10% wider. Outside keyframes are skipped, but
+  stored visible keyframes on deleted frames are included. The panel reports the keyframes considered.
+- **Canvas edit propagation:** Apply a box movement or resize to nearby frames in the forward
+  direction or both directions. Choose a frame radius and a gentle, linear, or steep falloff so that
+  the effect decreases with distance from the edited frame. Propagation is **off by default**.
+  When enabled, it updates the edited frame and nearby existing keyframes by default, skipping deleted
+  frames and outside positions.
+- **Optional keyframe creation:** Enable **Create keyframes** to also store positions on affected
+  interpolated frames. A confirmation warns that this can substantially increase annotation size and
+  replace interpolation with explicit keyframes; the panel estimates how many may be created.
+- **Undo/redo:** Each batch or propagated transform is a single undoable action. Track identity,
+  attributes, and other non-geometric annotation properties are retained.
+- **Track boundaries:** Use **Track start** and **Track end** to jump to the first or last visible frame.
+
+## Track timeline and navigation
+
+A collapsible **Track timeline** is docked below the canvas in the 2D Standard workspace, rather than
+covering the image. Expand it to see rectangle tracks, their visible segments, keyframe markers,
+outside/deleted-keyframe markers, and the current playhead. Filter by label, click a track to activate
+it, or click a segment to seek within it. Navigation skips deleted frames and can activate a track
+that is not visible on the current frame by seeking to a nearby visible position.
+
+Default shortcuts (customizable through CVAT's shortcut settings):
+
+| Shortcut | Action |
+| --- | --- |
+| `Shift + E` | Jump to the active rectangle track's first visible frame |
+| `Shift + R` | Jump to the active rectangle track's last visible frame |
+| `[` / `]` | Previous / next frame containing an annotation in the timeline's label scope |
+| `Shift + [` / `Shift + ]` | Activate the previous / next rectangle track in that label scope |
+
+The annotation-frame shortcuts search annotations, not just rectangle-track keyframes.
+Canvas sizing now accounts for the timeline, and the image is refitted after actual layout size
+changes, including timeline expansion, window resizing, and fullscreen transitions.
+
+## Precision bounding-box controls
+
+- **Click to place:** Click an active box body to pick it up, move the pointer without holding the
+  mouse button, and click again to place it. The same interaction works with corner and edge handles
+  for resizing. Traditional press-and-hold dragging remains available.
+- **Cancel safely:** Press `Esc` during a move or resize to restore the box's geometry from before
+  the interaction instead of keeping the unfinished edit.
+- **Editing crosshairs:** Crosshairs help align boxes while moving or resizing them.
+- **Magnified borders:** While drawing or editing a box, magnified image strips along **all four
+  edges** help inspect alignment without covering the box's center. This is a border overlay, not
+  just a magnifying lens at the pointer.
+- **Replace box:** Choose **Replace box** from an unlocked rectangle's object menu, or use
+  `Shift + N` on the active object, to draw replacement geometry while retaining the same shape or
+  track identity and attributes rather than deleting and recreating the annotation.
+
+Crosshairs and magnified borders are enabled by default and can be toggled independently under
+**Settings → Workspace** using **Crosshairs while editing bounding boxes** and
+**Magnified border while drawing and editing bounding boxes**.
+
+## Frame loading, buffering, and playback
+
+- **Task-quality playback by default:** Opening or seeking an image job fetches the selected image
+  at normal task quality first, then fills look-ahead chunks even while paused. Existing cached
+  chunks are reused. Normal task quality is the task's compressed representation, not the original
+  upload's full detail.
+- **Configurable client memory budget:** **Settings → Player → Look-ahead buffer multiplier** accepts
+  integers from 1 to 10 (default **10**). Each step permits approximately **2 GiB** of decoded images
+  and **10 chunks**, for a default ceiling of approximately **20 GiB / 100 chunks**. The setting is
+  saved in the browser and takes effect when reopening a job or reloading the page. This is a budget,
+  not preallocated memory or a cap on total browser/GPU memory; lower it on memory-constrained clients.
+- **Optional reduced-resolution playback:** **Settings → Player → Allow reduced-resolution playback**
+  is saved locally and **disabled by default**. For image jobs it uses separately cached JPEG previews
+  with a maximum 512px long edge and quality 50. Preview memory scales by **64 MiB per multiplier
+  step**, up to **640 MiB / 100 chunks**. Pausing refines the image to task quality after 250 ms without
+  blanking it; pixel-processing tools always request task quality. This mode trades resolution and
+  JPEG quality for speed and is neither lossless nor zoom-adaptive.
+- **Less loading contention:** Initial image loading runs alongside independent job resources.
+  Bounded preview transfers and playback priming reduce stalls; video can prime one decoded chunk
+  for up to one second. Canvas resize or annotation updates no longer prematurely signal image readiness.
+- **Server-side preview support and cache fixes:** The job-data API adds `type=preview_chunk` with
+  `quality=compressed` for 2D image ZIP data, using normal chunk index/number and Range semantics.
+  Unsupported data returns HTTP 400; the UI falls back to normal chunks when preview support is absent.
+  Replacing an expired cached chunk result also clears the old queue job's expiry so the queued
+  replacement is not prematurely removed.
+
+These changes work with existing tasks without re-upload or task conversion. Source files, annotation
+coordinates, exports, and existing compressed/original API responses are unchanged; video and
+point-cloud representations are unchanged. Cold loads, slow networks, and preview generation can
+still cause buffering.
+
+For building and installing matching fork server/UI images on an existing deployment, memory and
+version precautions, and rollback instructions, see
+[Installing this fork's frame-buffering fix](#installing-this-forks-frame-buffering-fix-on-an-existing-docker-deployment).
+The supplied [Compose override](docker-compose.buffering.yml) selects locally built fork images;
+the general upstream quick start below clones upstream and does not install these fork changes.
+
+## Development setup and regression coverage
+
+- [`.agents/setup`](.agents/setup) prepares an Amp orb with native build dependencies, pinned Node.js
+  and Rust toolchains, immutable Yarn workspace/Cypress installs, and separate server and REST-test
+  Python environments. It reuses installed tools and cached builds, constrains the `xmlsec` build to
+  the pinned `lxml` version to avoid duplicate native compilation, and reports dependency-step timings.
+- [`.agents/resume`](.agents/resume) recreates the runtime `logs` and `keys` directories without
+  reinstalling dependencies. Local Amp files and Python test environments are excluded from Docker
+  build contexts.
+- Added regression coverage includes rectangle-track editing/navigation, click-to-place and precision
+  controls, preview API behavior, chunk-queue expiry, and deterministic frame-buffering scenarios.
+  Run the standalone buffering suite with `yarn workspace cvat-core run test:frames`; UI and backend
+  regressions use the repository's existing Cypress and Python test infrastructure.
+
+---
+
 [![CVAT Community header](site/content/en/images/cvat_github_header.webp)](https://app.cvat.ai)
 # CVAT: Computer Vision Annotation Tool
 
