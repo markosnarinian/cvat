@@ -2,5 +2,14 @@
   "upstream_repository": "cvat-ai/cvat",
   "upstream_branch": "develop",
   "baseline_sha": "c0def506157bdaf314112c798efe8e08b75021e7",
-  "checkpoints": []
+  "checkpoints": [
+    {
+      "start_sha": "c0def506157bdaf314112c798efe8e08b75021e7",
+      "end_sha": "50862d9a393f5f44d5244fe0270ff557e054be48",
+      "fork_branch": "develop",
+      "fork_sha": "cd824dedb9cd12f248bcd96adb178c584627b0c8",
+      "completed_at": "2026-10-30T15:09:34Z",
+      "thread_url": "https://ampcode.com/threads/T-01a18d50-caea-7700-8be4-d616410e0af0"
+    }
+  ]
 }
