@@ -118,6 +118,8 @@ the general upstream quick start below clones upstream and does not install thes
   and Rust toolchains, immutable Yarn workspace/Cypress installs, and separate server and REST-test
   Python environments. It reuses installed tools and cached builds, constrains the `xmlsec` build to
   the pinned `lxml` version to avoid duplicate native compilation, and reports dependency-step timings.
+  Xvfb is installed so Cypress can start in the headless orb. Running the full REST/SDK suite still
+  requires SDK generation/installation and the backend services, as in the CI workflow.
 - [`.agents/resume`](.agents/resume) recreates the runtime `logs` and `keys` directories without
   reinstalling dependencies. Local Amp files and Python test environments are excluded from Docker
   build contexts.
