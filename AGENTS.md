@@ -1,5 +1,19 @@
 # Repository guidance
 
+## Keep orb setup scripts up to date
+
+When changing dependencies, toolchain versions, native packages, or development/test workflows,
+review `.agents/setup` and `.agents/resume` and update them in the same change wherever affected.
+
+- Keep setup aligned with the repository's manifests, lockfiles, and supported workflows so a fresh
+  orb has the prerequisites needed for development and verification.
+- Keep both scripts executable, non-interactive, and idempotent. Install dependencies in setup;
+  reserve resume for fast runtime repair, not dependency installation.
+- Verify changed scripts with `bash -n`, run setup twice to check the warm path, and run resume.
+  Check the affected tools or workflow, not just that installation succeeds. Report any limitations.
+- Update the README's development setup instructions when setup behavior or limitations change.
+  If neither script is affected, leave them unchanged.
+
 ## Keep the README up to date
 
 When changing features, behavior, settings, shortcuts, APIs, installation, or development workflows,
